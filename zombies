@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>좀비 서바이벌</title>
+  <style>
+    body {
+      margin: 0;
+      background: #eef5ff;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+    }
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: sans-serif;
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+      background: rgba(255, 255, 255, 0.7);
+      padding: 6px 12px;
+      border-radius: 6px;
+    }
+    #gameover {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: sans-serif;
+      font-size: 36px;
+      font-weight: bold;
+      color: red;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">HP: 100 | 점수: 0 | 웨이브: 1</div>
+  <div id="gameover">GAME OVER</div>
+  <canvas id="game"></canvas>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const ui = document.getElementById("ui");
+    const gameoverText = document.getElementById("gameover");
+
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+      radius: 20,
+      color: "yellow",
+      hp: 100
+    };
+
+    let bullets = [];
+    let zombies = [];
+    let score = 0;
+    let wave = 1;
+    let gameOver = false;
+
+    let mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+
+    canvas.addEventListener("mousemove", e => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+    });
+
+    // 총알 발사
+    setInterval(() => {
+      if (gameOver) return;
+      const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+      const speed = 6 + wave;
+      bullets.push({
+        x: player.x,
+        y: player.y,
+        radius: 5,
+        color: "black",
+        dx: Math.cos(angle) * speed,
+        dy: Math.sin(angle) * speed
+      });
+    }, 300);
+
+    // 좀비 스폰
+    function spawnZombie() {
+      if (gameOver) return;
+      const edge = Math.floor(Math.random() * 4);
+      let x, y;
+      if (edge === 0) { x = Math.random() * canvas.width; y = -30; }
+      else if (edge === 1) { x = Math.random() * canvas.width; y = canvas.height + 30; }
+      else if (edge === 2) { x = -30; y = Math.random() * canvas.height; }
+      else { x = canvas.width + 30; y = Math.random() * canvas.height; }
+      zombies.push({
+        x,
+        y,
+        radius: 20,
+        color: "limegreen",
+        speed: 1 + wave * 0.2
+      });
+    }
+
+    setInterval(spawnZombie, 1000);
+
+    // 웨이브 증가 + HP 회복
+    setInterval(() => {
+      if (!gameOver) {
+        wave++;
+        player.hp = Math.min(player.hp + 10, 100); // HP 회복 (최대 100)
+      }
+    }, 15000);
+
+    function update() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 플레이어
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+      ctx.fillStyle = player.color;
+      ctx.fill();
+
+      // 총알
+      bullets.forEach((b, bi) => {
+        b.x += b.dx;
+        b.y += b.dy;
+
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+        ctx.fillStyle = b.color;
+        ctx.fill();
+
+        if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+          bullets.splice(bi, 1);
+        }
+      });
+
+      // 좀비
+      zombies.forEach((z, zi) => {
+        const angle = Math.atan2(player.y - z.y, player.x - z.x);
+        z.x += Math.cos(angle) * z.speed;
+        z.y += Math.sin(angle) * z.speed;
+
+        ctx.beginPath();
+        ctx.arc(z.x, z.y, z.radius, 0, Math.PI * 2);
+        ctx.fillStyle = z.color;
+        ctx.fill();
+
+        // 총알 충돌
+        bullets.forEach((b, bi) => {
+          const dx = z.x - b.x;
+          const dy = z.y - b.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < z.radius + b.radius) {
+            zombies.splice(zi, 1);
+            bullets.splice(bi, 1);
+            score += 10;
+          }
+        });
+
+        // 플레이어 충돌
+        const dx = z.x - player.x;
+        const dy = z.y - player.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < z.radius + player.radius) {
+          zombies.splice(zi, 1);
+          player.hp -= 20;
+          if (player.hp <= 0) {
+            player.hp = 0;
+            gameOver = true;
+            gameoverText.style.display = "block";
+          }
+        }
+      });
+
+      // UI
+      ui.textContent = `HP: ${player.hp} | 점수: ${score} | 웨이브: ${wave}`;
+
+      if (!gameOver) requestAnimationFrame(update);
+    }
+
+    update();
+  </script>
+</body>
+</html>
