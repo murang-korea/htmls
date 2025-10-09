@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>모바일 타워 디펜스 — 난이도 상승 버전</title>
+<style>
+  :root{--bg:#eef5ff}
+  html,body{height:100%;margin:0;background:var(--bg);-webkit-tap-highlight-color:transparent}
+  body{font-family:Inter,system-ui,Segoe UI,Roboto,"Noto Sans",sans-serif;display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px}
+  #container{width:100%;max-width:920px;position:relative}
+  canvas{display:block;background:#d9f0d9;border:3px solid #333;touch-action:none}
+  .topbar{display:flex;justify-content:space-between;align-items:center;padding:6px 4px}
+  .hud{font-weight:700;display:flex;gap:12px;align-items:center}
+  .controls{display:flex;gap:8px;align-items:center}
+  button{padding:6px 10px;border-radius:6px;border:1px solid #aaa;background:#fff;cursor:pointer}
+  .towerBar{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;padding:8px}
+  .towerBtn{width:64px;height:64px;border-radius:8px;color:#fff;font-weight:700;border:0;box-shadow:0 2px 0 rgba(0,0,0,0.12)}
+  .red{background:#e74c3c}
+  .blue{background:#3498db}
+  .green{background:#2ecc71}
+  .yellow{background:#f1c40f;color:#000}
+  .purple{background:#9b59b6}
+  .black{background:#34495e}
+  .selected{outline:3px solid #333}
+  #msg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.66);color:#fff;padding:10px 14px;border-radius:10px;display:none;white-space:pre-line;text-align:center}
+  .note{font-size:12px;color:#333}
+  @media(max-width:420px){
+    .towerBtn{width:52px;height:52px;font-size:12px}
+  }
+</style>
+</head>
+<body>
+  <div id="container">
+    <div class="topbar">
+      <div class="hud">
+        <div>돈: <span id="money">0</span></div>
+        <div>웨이브: <span id="wave">1</span></div>
+        <div>체력: <span id="lives">20</span></div>
+      </div>
+      <div class="controls">
+        <button id="btnWave">웨이브 시작</button>
+        <button id="btnReset">초기화</button>
+        <div class="note">길 바깥에만 설치 가능합니다</div>
+      </div>
+    </div>
+
+    <!-- 내부 해상도(디자인 기준) -->
+    <canvas id="game" width="920" height="560"></canvas>
+
+    <div class="towerBar" id="towerBar">
+      <button id="t_red" class="towerBtn red">빨강<br>50</button>
+      <button id="t_blue" class="towerBtn blue">파랑<br>75</button>
+      <button id="t_green" class="towerBtn green">초록<br>100</button>
+      <button id="t_yellow" class="towerBtn yellow">노랑<br>120</button>
+      <button id="t_purple" class="towerBtn purple">보라<br>150</button>
+      <button id="t_black" class="towerBtn black">검정<br>200</button>
+    </div>
+
+    <div id="msg">메시지</div>
+  </div>
+
+<script>
+/*
+  Progressive Mobile Tower Defense
+  - DESIGN resolution: 920x560 (internal coords)
+  - Mobile-friendly: CSS scales canvas to device width
+  - Progressive difficulty: wave increases -> spawn count, HP, speed, spawn rate change
+  - Enemy types: normal, fast, tank, regen, boss (boss on wave%5==0)
+  - Towers: 6 types (splash/slow/sniper etc.)
+  - Money: +1 every 100ms
+  - Placement not allowed on path
+  - Well-commented core logic
+*/
+
+const DESIGN_W = 920, DESIGN_H = 560;
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const moneyEl = document.getElementById('money');
+const waveEl = document.getElementById('wave');
+const livesEl = document.getElementById('lives');
+const btnWave = document.getElementById('btnWave');
+const btnReset = document.getElementById('btnReset');
+const msg = document.getElementById('msg');
+
+let money = 0, moneyAcc = 0;
+let wave = 1, lives = 20;
+let enemies = [], towers = [], bullets = [];
+let selectedKey = null;
+let spawnQueue = [], spawnAcc = 0;
+let autoWave = false;
+let lastTs = 0, tempMsgTimer = 0;
+
+// DESIGN path (in design coords)
+const rawPath = [
+  {x:0,   y:280},
+  {x:220, y:280},
+  {x:220, y:460},
+  {x:460, y:460},
+  {x:460, y:140},
+  {x:920, y:140}
+];
+const PATH_RADIUS_DESIGN = 14; // design units
+
+// Tower definitions (unchanged)
+const towerTypes = {
+  red:    { cost:50,  range:70,  rate:800,  damage:15,  color:'#e74c3c', splash:false, slow:false },
+  blue:   { cost:75,  range:100, rate:1200,  damage:25,  color:'#3498db', splash:false, slow:false },
+  green:  { cost:100, range:130, rate:1800,  damage:40,  color:'#2ecc71', splash:false, slow:false },
+  yellow: { cost:120, range:90,  rate:2000, damage:30,  color:'#f1c40f', splash:true,  splashRadius:48, slow:false },
+  purple: { cost:150, range:110, rate:1400,  damage:10,  color:'#9b59b6', splash:false, slow:true, slowFactor:0.5, slowDuration:3000 },
+  black:  { cost:200, range:200, rate:2800, damage:120, color:'#34495e', splash:false, slow:false }
+};
+
+// Enemy template base (will be scaled per wave)
+const enemyBase = {
+  normal: { hp: 100,  speed: 0.045, color:'#2ecc71', size:14, reward:5 },
+  fast:   { hp: 60,  speed: 0.09,  color:'#e67e22', size:12, reward:4 },
+  tank:   { hp: 400, speed: 0.025, color:'#2c3e50', size:18, reward:20 },
+  regen:  { hp: 140,  speed: 0.045, color:'#ff7fbf', size:14, reward:6, regen:2 },
+  boss:   { hp: 1600, speed: 0.035, color:'#000000', size:28, reward:100 }
+};
+
+// Helpers: convert client coords to design canvas coords
+function clientToCanvas(cx, cy){
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (cx - rect.left) * (canvas.width / rect.width),
+    y: (cy - rect.top)  * (canvas.height / rect.height)
+  };
+}
+function getPath(){ return rawPath; }
+function getPathRadius(){ return PATH_RADIUS_DESIGN; }
+
+// point->segment distance
+function pointToSegmentDistance(px,py,x1,y1,x2,y2){
+  const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
+  const dot = A*C + B*D;
+  const len_sq = C*C + D*D;
+  let param = -1;
+  if(len_sq !== 0) param = dot / len_sq;
+  let xx, yy;
+  if(param < 0){ xx = x1; yy = y1; }
+  else if(param > 1){ xx = x2; yy = y2; }
+  else { xx = x1 + param * C; yy = y1 + param * D; }
+  const dx = px - xx, dy = py - yy;
+  return Math.hypot(dx,dy);
+}
+function isOnPath(x,y){
+  const path = getPath();
+  const pr = getPathRadius();
+  for(let i=0;i<path.length-1;i++){
+    const p1 = path[i], p2 = path[i+1];
+    if(pointToSegmentDistance(x,y,p1.x,p1.y,p2.x,p2.y) < pr + 6) return true;
+  }
+  return false;
+}
+function canPlace(x,y){
+  if(isOnPath(x,y)) return false;
+  for(const t of towers) if(Math.hypot(t.x-x, t.y-y) < 36) return false;
+  return true;
+}
+
+// Enemy class with wave-based scaling
+class Enemy {
+  constructor(typeKey, wave){
+    // clone and scale based on wave
+    const b = enemyBase[typeKey];
+    this.type = typeKey;
+    // scale HP: base * (1 + wave*hpScale)
+    const hpScale = 0.12; // 12% HP increase per wave (tuneable)
+    this.maxHp = Math.round(b.hp * (1 + (wave-1) * hpScale));
+    this.hp = this.maxHp;
+    // scale speed slightly with wave (but not too much)
+    const speedScale = 0.006; // speed increase per wave
+    this.baseSpeed = b.speed * (1 + (wave-1) * speedScale);
+    this.speed = this.baseSpeed;
+    this.color = b.color;
+    this.size = b.size;
+    this.reward = Math.round(b.reward * (1 + (wave-1) * 0.08)); // money reward scales
+    this.regen = b.regen || 0;
+    this.regenAcc = 0;
+    this.slowTimeout = 0;
+    this.pathIndex = 0;
+    const p = getPath()[0];
+    this.x = p.x; this.y = p.y;
+  }
+  applySlow(factor, duration){
+    this.speed = this.baseSpeed * factor;
+    this.slowTimeout = duration;
+  }
+  update(delta){
+    // regen per second
+    if(this.regen){
+      this.regenAcc += delta;
+      while(this.regenAcc >= 1000){
+        this.hp = Math.min(this.maxHp, this.hp + this.regen);
+        this.regenAcc -= 1000;
+      }
+    }
+    // slow timer
+    if(this.slowTimeout > 0){
+      this.slowTimeout -= delta;
+      if(this.slowTimeout <= 0){
+        this.speed = this.baseSpeed; this.slowTimeout = 0;
+      }
+    }
+    const path = getPath();
+    const target = path[this.pathIndex+1];
+    if(!target) return 'end';
+    const dx = target.x - this.x, dy = target.y - this.y;
+    const dist = Math.hypot(dx,dy);
+    // travel in design pixel space (speed is px/ms in design units)
+    const travel = this.speed * delta * 1; // keep design scale consistent
+    if(dist <= travel){
+      this.x = target.x; this.y = target.y; this.pathIndex++;
+      if(this.pathIndex >= path.length-1) return 'end';
+    } else {
+      this.x += travel * dx / dist;
+      this.y += travel * dy / dist;
+    }
+    return 'alive';
+  }
+  draw(){
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI*2);
+    ctx.fill();
+    // HP bar
+    const ratio = Math.max(0, this.hp / this.maxHp);
+    ctx.fillStyle = 'red';
+    ctx.fillRect(this.x - this.size, this.y - this.size - 8, this.size*2, 5);
+    ctx.fillStyle = 'lime';
+    ctx.fillRect(this.x - this.size, this.y - this.size - 8, this.size*2 * ratio, 5);
+  }
+}
+
+// Tower
+class Tower {
+  constructor(x,y,key){
+    this.x = x; this.y = y;
+    this.key = key; this.spec = towerTypes[key];
+    this.range = this.spec.range;
+    this.rate = this.spec.rate; // ms
+    this.damage = this.spec.damage;
+    this.color = this.spec.color;
+    this.cool = 0;
+  }
+  update(delta){
+    if(this.cool > 0){ this.cool -= delta; return; }
+    // nearest enemy in range
+    let target = null, minD = Infinity;
+    for(const e of enemies){
+      const d = Math.hypot(e.x - this.x, e.y - this.y);
+      if(d <= this.range && d < minD){ minD = d; target = e; }
+    }
+    if(target){
+      bullets.push(new Bullet(this.x, this.y, target, this.damage, this.color, {
+        splash: this.spec.splash || false,
+        splashRadius: this.spec.splashRadius || 0,
+        slow: this.spec.slow || false,
+        slowFactor: this.spec.slowFactor || 1,
+        slowDuration: this.spec.slowDuration || 0
+      }));
+      this.cool = this.rate;
+    }
+  }
+  draw(){
+    ctx.fillStyle = this.color;
+    ctx.fillRect(this.x - 16, this.y - 16, 32, 32);
+    ctx.globalAlpha = 0.06;
+    ctx.strokeStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.range, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// Bullet
+class Bullet {
+  constructor(x,y,target,damage,color,opts={}){
+    this.x = x; this.y = y; this.target = target;
+    this.damage = damage; this.color = color;
+    this.speed = 0.55; // px/ms on design coords
+    this.size = 5;
+    this.splash = opts.splash || false;
+    this.splashRadius = opts.splashRadius || 0;
+    this.slow = opts.slow || false;
+    this.slowFactor = opts.slowFactor || 1;
+    this.slowDuration = opts.slowDuration || 0;
+  }
+  update(delta){
+    if(!this.target || this.target.hp <= 0) return false;
+    const dx = this.target.x - this.x, dy = this.target.y - this.y;
+    const dist = Math.hypot(dx,dy);
+    const travel = this.speed * delta;
+    if(dist <= travel){
+      // hit
+      if(this.splash){
+        for(const e of enemies){
+          const d2 = Math.hypot(e.x - this.target.x, e.y - this.target.y);
+          if(d2 <= this.splashRadius) e.hp -= this.damage;
+        }
+      } else {
+        this.target.hp -= this.damage;
+        if(this.slow && this.target.hp > 0) this.target.applySlow(this.slowFactor, this.slowDuration);
+      }
+      return false;
+    }
+    this.x += travel * dx / dist;
+    this.y += travel * dy / dist;
+    return true;
+  }
+  draw(){
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+// Spawn scheduling with progressive difficulty
+// As wave increases:
+//  - spawnCount increases (base 5 + 2*wave)
+//  - spawnInterval decreases (down to a minimum)
+//  - enemy weights shift to include more hard types
+function scheduleSpawnForWave(waveNum){
+  spawnQueue = [];
+  // base count
+  const baseCount = 5 + waveNum * 2;
+  // spawn interval base and reduction with wave
+  spawnInterval = Math.max(200, 700 - (waveNum - 1) * 20); // ms between spawn, floors at 200ms
+  // Boss on multiples of 5
+  const spawnBoss = (waveNum % 5 === 0);
+  for(let i=0;i<baseCount;i++){
+    // dynamic weights
+    // start with base probabilities
+    let weights = { normal: 0.6, fast: 0.18, tank: 0.08, regen: 0.14 };
+    // increase pressure as wave grows
+    const pressure = Math.min(0.6, (waveNum - 1) * 0.03); // up to +0.6 weight scale
+    weights.fast += pressure * 0.5;
+    weights.tank += pressure * 0.3;
+    weights.regen += pressure * 0.2;
+    // normalize
+    const tot = weights.normal + weights.fast + weights.tank + weights.regen;
+    weights.normal /= tot; weights.fast /= tot; weights.tank /= tot; weights.regen /= tot;
+    const r = Math.random();
+    let acc = 0;
+    if(r < (acc += weights.normal)) spawnQueue.push('normal');
+    else if(r < (acc += weights.fast)) spawnQueue.push('fast');
+    else if(r < (acc += weights.tank)) spawnQueue.push('tank');
+    else spawnQueue.push('regen');
+  }
+  if(spawnBoss) spawnQueue.push('boss');
+  spawnAcc = 0;
+}
+
+// UI wiring
+function toggleSelect(key){
+  if(selectedKey === key) selectedKey = null;
+  else selectedKey = key;
+  updateButtonSelection();
+}
+function updateButtonSelection(){
+  const ids = {red:'t_red',blue:'t_blue',green:'t_green',yellow:'t_yellow',purple:'t_purple',black:'t_black'};
+  for(const k in ids){
+    const el = document.getElementById(ids[k]);
+    if(selectedKey === k) el.classList.add('selected'); else el.classList.remove('selected');
+  }
+}
+document.getElementById('t_red').addEventListener('click', ()=> toggleSelect('red'));
+document.getElementById('t_blue').addEventListener('click', ()=> toggleSelect('blue'));
+document.getElementById('t_green').addEventListener('click', ()=> toggleSelect('green'));
+document.getElementById('t_yellow').addEventListener('click', ()=> toggleSelect('yellow'));
+document.getElementById('t_purple').addEventListener('click', ()=> toggleSelect('purple'));
+document.getElementById('t_black').addEventListener('click', ()=> toggleSelect('black'));
+
+btnWave.addEventListener('click', ()=> {
+  if(spawnQueue.length === 0 && enemies.length === 0){
+    // schedule this wave
+    scheduleSpawnForWave(wave);
+  } else {
+    autoWave = !autoWave;
+    btnWave.textContent = autoWave ? '자동웨이브: ON' : '웨이브 시작';
+  }
+});
+btnReset.addEventListener('click', resetGame);
+
+// prevent multi-touch weirdness
+document.addEventListener('touchstart', (e) => {
+  if(e.touches.length > 1) e.preventDefault();
+}, {passive:false});
+
+// placement handling
+canvas.addEventListener('touchstart', (ev) => {
+  const t = ev.touches[0];
+  const c = clientToCanvas(t.clientX, t.clientY);
+  attemptPlace(c.x, c.y);
+  ev.preventDefault();
+}, {passive:false});
+canvas.addEventListener('click', (ev) => {
+  const c = clientToCanvas(ev.clientX, ev.clientY);
+  attemptPlace(c.x, c.y);
+});
+function attemptPlace(x,y){
+  if(!selectedKey) return;
+  const spec = towerTypes[selectedKey];
+  if(!spec) return;
+  if(!canPlace(x,y)){ showTemp('길 위나 타워 가까이에는 설치할 수 없습니다'); return; }
+  if(money < spec.cost){ showTemp('돈이 부족합니다'); return; }
+  towers.push(new Tower(x,y,selectedKey));
+  money -= spec.cost; updateHUD();
+}
+
+// temporary message helper
+function showTemp(text, ms=900){
+  msg.innerText = text; msg.style.display = 'block'; tempMsgTimer = ms;
+}
+
+// draw everything
+function drawAll(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // draw path
+  const path = getPath();
+  ctx.strokeStyle = '#555'; ctx.lineWidth = getPathRadius() * 2; ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(path[0].x, path[0].y);
+  for(const p of path) ctx.lineTo(p.x, p.y); ctx.stroke();
+
+  // draw towers, enemies, bullets
+  for(const t of towers) t.draw();
+  for(const e of enemies) e.draw();
+  for(const b of bullets) b.draw();
+}
+
+// HUD update
+function updateHUD(){ moneyEl.innerText = money; waveEl.innerText = wave; livesEl.innerText = lives; }
+
+// reset
+function resetGame(){
+  money = 0; moneyAcc = 0; wave = 1; lives = 20;
+  enemies = []; towers = []; bullets = []; spawnQueue = []; selectedKey = null; autoWave = false;
+  tempMsgTimer = 0; msg.style.display = 'none';
+  updateButtonSelection(); updateHUD();
+  scheduleSpawnForWave(wave);
+}
+
+// main loop
+function gameLoop(ts){
+  if(!lastTs) lastTs = ts;
+  const delta = Math.min(60, ts - lastTs); lastTs = ts; // ms
+
+  // money accumulation +1 per 100ms
+  moneyAcc += delta;
+  while(moneyAcc >= 100){ money++; moneyAcc -= 100; }
+
+  // spawn queue consumption (spawnInterval scaled by wave inside schedule function)
+  if(spawnQueue.length > 0){
+    spawnAcc += delta;
+    if(spawnAcc >= spawnInterval){
+      const typeKey = spawnQueue.shift();
+      // create enemy scaled by current wave
+      enemies.push(new Enemy(typeKey, wave));
+      spawnAcc = 0;
+    }
+  } else {
+    // if autoWave enabled and no enemies, schedule next wave
+    if(autoWave && enemies.length === 0){
+      wave++; scheduleSpawnForWave(wave);
+    }
+  }
+
+  // update enemies
+  for(let i = enemies.length - 1; i >= 0; i--){
+    const e = enemies[i];
+    const status = e.update(delta);
+    if(status === 'end'){
+      // reached goal
+      lives--;
+      enemies.splice(i,1);
+      continue;
+    }
+    if(e.hp <= 0){
+      money += e.reward || 5;
+      enemies.splice(i,1);
+      continue;
+    }
+  }
+
+  // update towers
+  for(const t of towers) t.update(delta);
+
+  // update bullets and remove dead bullets
+  bullets = bullets.filter(b => b.update(delta));
+
+  // if spawnQueue empty and enemies cleared -> wave complete -> increment wave number and schedule next if auto
+  if(spawnQueue.length === 0 && enemies.length === 0 && autoWave){
+    wave++; scheduleSpawnForWave(wave);
+  }
+
+  // draw & HUD
+  drawAll();
+  updateHUD();
+
+  // temp message hide timer
+  if(tempMsgTimer > 0){
+    tempMsgTimer -= delta;
+    if(tempMsgTimer <= 0){ msg.style.display = 'none'; tempMsgTimer = 0; }
+  }
+
+  // game over
+  if(lives <= 0){
+    msg.innerText = '게임 오버\n리셋으로 재시작';
+    msg.style.display = 'block';
+    return;
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+// fit canvas visually to screen while keeping internal design coords
+function fitCanvasToScreen(){
+  const maxW = Math.min(window.innerWidth - 16, DESIGN_W);
+  const w = maxW;
+  const h = Math.round(w * DESIGN_H / DESIGN_W);
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+}
+window.addEventListener('resize', fitCanvasToScreen);
+fitCanvasToScreen();
+
+// initial scheduling and loop start
+let spawnInterval = 700; // will be overwritten in scheduleSpawnForWave
+scheduleSpawnForWave(wave);
+requestAnimationFrame(gameLoop);
+
+// expose for debug if needed
+window._TD = { enemies, towers, bullets, scheduleSpawnForWave };
+
+// initial UI state
+updateButtonSelection();
+updateHUD();
+
+</script>
+</body>
+</html>
