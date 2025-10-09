@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>슬라이드 퍼즐 (15퍼즐)</title>
+<style>
+  :root{
+    --bg:#f0f4f8;
+    --board:#ffffff;
+    --tile:#2b6cb0;
+    --tileText:#fff;
+    --empty:#e6eef9;
+    --panelBg: rgba(0,0,0,0.04);
+  }
+  html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,system-ui,Segoe UI,Roboto,"Noto Sans",sans-serif;display:flex;align-items:center;justify-content:center}
+  .container{width:min(720px,95vw);padding:18px;box-sizing:border-box}
+  h1{margin:0 0 12px 0;font-size:20px;text-align:center}
+  .topbar{display:flex;gap:10px;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .panel{background:var(--panelBg);padding:8px 10px;border-radius:10px;font-size:14px}
+  .controls{display:flex;gap:8px}
+  button{background:#fff;border:1px solid #ddd;padding:8px 12px;border-radius:8px;cursor:pointer}
+  button:active{transform:translateY(1px)}
+  .board-wrap{background:var(--board);padding:18px;border-radius:14px;display:flex;justify-content:center;align-items:center}
+  .board{width:100%;max-width:600px;aspect-ratio:1/1;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .tile{
+    display:flex;justify-content:center;align-items:center;
+    background:var(--tile);color:var(--tileText);
+    font-weight:700;font-size:clamp(18px,4vw,28px);
+    border-radius:8px;user-select:none;
+    touch-action: manipulation;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.08), inset 0 -6px 14px rgba(0,0,0,0.06);
+  }
+  .tile.empty{
+    background:var(--empty); box-shadow: none;
+  }
+  .footer{margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .small{font-size:13px;color:#333}
+  .center{text-align:center}
+  @media(max-width:480px){
+    .topbar{flex-direction:column;align-items:stretch;gap:8px}
+    .controls{justify-content:flex-end}
+  }
+</style>
+</head>
+<body>
+  <div class="container" role="application" aria-label="슬라이드 퍼즐">
+    <h1>슬라이드 퍼즐 (4×4)</h1>
+
+    <div class="topbar">
+      <div class="panel small">이동: <span id="moves">0</span> · 시간: <span id="time">00:00</span></div>
+      <div class="controls">
+        <button id="shuffleBtn">셔플</button>
+        <button id="resetBtn">초기화</button>
+        <button id="solveBtn">정답으로</button>
+      </div>
+    </div>
+
+    <div class="board-wrap">
+      <div id="board" class="board"></div>
+    </div>
+
+    <div class="footer">
+      <div class="small">타일을 클릭하거나 화살표 키로 이동하세요. 모바일은 터치로 이동.</div>
+      <div class="center small">목표: 숫자 순서대로 정렬 (1 → 15)</div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const BOARD_SIZE = 4;
+  const TILE_COUNT = BOARD_SIZE * BOARD_SIZE;
+  const boardEl = document.getElementById('board');
+  const movesEl = document.getElementById('moves');
+  const timeEl = document.getElementById('time');
+  const shuffleBtn = document.getElementById('shuffleBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const solveBtn = document.getElementById('solveBtn');
+
+  let tiles = [];
+  let moves = 0;
+  let timer = null;
+  let startTime = null;
+  let elapsed = 0;
+  let emptyIndex = TILE_COUNT - 1;
+  let running = false;
+
+  function initSolved() {
+    tiles = Array.from({length:TILE_COUNT}, (_,i) => i+1);
+    tiles[TILE_COUNT-1] = 0;
+    emptyIndex = TILE_COUNT - 1;
+    moves = 0;
+    elapsed = 0;
+    updateHUD();
+    render();
+    stopTimer();
+  }
+
+  function render() {
+    boardEl.innerHTML = '';
+    for(let i=0;i<TILE_COUNT;i++){
+      const v = tiles[i];
+      const tile = document.createElement('div');
+      tile.className = 'tile' + (v===0 ? ' empty' : '');
+      tile.dataset.index = i;
+      if(v!==0) tile.textContent = v;
+      tile.addEventListener('click', onTileClick);
+      boardEl.appendChild(tile);
+    }
+  }
+
+  function swap(i,j) {
+    [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
+  }
+
+  function canMove(i) {
+    const r1 = Math.floor(i/BOARD_SIZE), c1 = i%BOARD_SIZE;
+    const r2 = Math.floor(emptyIndex/BOARD_SIZE), c2 = emptyIndex%BOARD_SIZE;
+    return Math.abs(r1-r2)+Math.abs(c1-c2)===1;
+  }
+
+  function moveTile(i, record=true) {
+    if(tiles[i]===0 || !canMove(i)) return false;
+    swap(i, emptyIndex);
+    emptyIndex = i;
+    if(record) {
+      moves++;
+      updateHUD();
+      if(!running) startTimer();
+    }
+    render();
+    if(checkSolved()) {
+      stopTimer();
+      setTimeout(()=>alert(`축하합니다! 해결했습니다.\n이동: ${moves}  시간: ${formatTime(elapsed)}`), 80);
+    }
+    return true;
+  }
+
+  function onTileClick(e) {
+    moveTile(Number(this.dataset.index));
+  }
+
+  window.addEventListener('keydown', e=>{
+    let target=null;
+    const r=Math.floor(emptyIndex/BOARD_SIZE),c=emptyIndex%BOARD_SIZE;
+    if(e.key==="ArrowLeft"&&c<BOARD_SIZE-1)target=emptyIndex+1;
+    if(e.key==="ArrowRight"&&c>0)target=emptyIndex-1;
+    if(e.key==="ArrowUp"&&r<BOARD_SIZE-1)target=emptyIndex+BOARD_SIZE;
+    if(e.key==="ArrowDown"&&r>0)target=emptyIndex-BOARD_SIZE;
+    if(target!==null)moveTile(target,true);
+  });
+
+  function startTimer() {
+    running=true;
+    startTime=performance.now()-elapsed;
+    timer=requestAnimationFrame(tick);
+  }
+  function stopTimer() {
+    running=false;
+    if(timer) cancelAnimationFrame(timer);
+    timer=null;
+  }
+  function tick() {
+    elapsed=performance.now()-startTime;
+    updateHUD();
+    timer=requestAnimationFrame(tick);
+  }
+  function formatTime(ms) {
+    const s=Math.floor(ms/1000);
+    return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  }
+  function updateHUD() {
+    movesEl.textContent=moves;
+    timeEl.textContent=formatTime(elapsed);
+  }
+
+  // --- solvability check ---
+  function isSolvable(arr) {
+    const invCount = arr.filter(n=>n!==0).reduce((inv,cur,i)=>{
+      for(let j=i+1;j<arr.length;j++){
+        if(arr[j]!==0 && arr[j]<cur) inv++;
+      }
+      return inv;
+    },0);
+    const rowFromBottom = BOARD_SIZE - Math.floor(emptyIndex/BOARD_SIZE);
+    if(BOARD_SIZE%2===1){
+      return invCount%2===0;
+    } else {
+      return (rowFromBottom%2===0) ? (invCount%2===1) : (invCount%2===0);
+    }
+  }
+
+  function shuffle(times=200) {
+    do {
+      initSolved();
+      let lastMove=null;
+      for(let i=0;i<times;i++){
+        const neighbors=[];
+        const idx=emptyIndex;
+        const r=Math.floor(idx/BOARD_SIZE),c=idx%BOARD_SIZE;
+        if(r>0)neighbors.push(idx-BOARD_SIZE);
+        if(r<BOARD_SIZE-1)neighbors.push(idx+BOARD_SIZE);
+        if(c>0)neighbors.push(idx-1);
+        if(c<BOARD_SIZE-1)neighbors.push(idx+1);
+        if(lastMove!==null){
+          const f=neighbors.filter(n=>n!==lastMove);
+          if(f.length)neighbors.splice(0,neighbors.length,...f);
+        }
+        const pick=neighbors[Math.floor(Math.random()*neighbors.length)];
+        swap(pick,idx);
+        lastMove=pick;
+        emptyIndex=pick;
+      }
+    } while(!isSolvable(tiles));
+    moves=0;elapsed=0;
+    updateHUD();
+    render();
+    stopTimer();
+  }
+
+  function checkSolved() {
+    return tiles.every((v,i)=> (i<TILE_COUNT-1? v===i+1: v===0));
+  }
+
+  shuffleBtn.addEventListener('click',()=>shuffle(300));
+  resetBtn.addEventListener('click',()=>initSolved());
+  solveBtn.addEventListener('click',()=>{
+    initSolved(); alert("정답 상태로 초기화되었습니다.");
+  });
+
+  initSolved();
+})();
+</script>
+</body>
+</html>
