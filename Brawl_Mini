@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brawl Mini</title>
+<style>
+  body {
+    margin: 0;
+    background: #1a1a1a;
+    overflow: hidden;
+    font-family: "Pretendard", sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+  }
+  #ui {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    font-size: 1.1rem;
+  }
+  canvas {
+    background: #2e2e2e;
+    border: 2px solid #555;
+    border-radius: 10px;
+    touch-action: none;
+  }
+</style>
+</head>
+<body>
+<div id="ui">❤️ HP: <span id="hp">100</span></div>
+<canvas id="game" width="800" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const player = { x: 400, y: 300, size: 20, color: "#4f8cff", hp: 100, bullets: [] };
+const enemy = { x: 200, y: 150, size: 20, color: "#ff4f4f", dirX: 1, dirY: 1, bullets: [] };
+const keys = {};
+
+document.addEventListener("keydown", e => keys[e.key] = true);
+document.addEventListener("keyup", e => keys[e.key] = false);
+
+canvas.addEventListener("click", e => {
+  const rect = canvas.getBoundingClientRect();
+  const dx = e.clientX - rect.left - player.x;
+  const dy = e.clientY - rect.top - player.y;
+  const angle = Math.atan2(dy, dx);
+  player.bullets.push({
+    x: player.x,
+    y: player.y,
+    dx: Math.cos(angle) * 6,
+    dy: Math.sin(angle) * 6
+  });
+});
+
+// 모바일 터치용 컨트롤
+let touch = null;
+canvas.addEventListener("touchstart", e => {
+  touch = e.touches[0];
+});
+canvas.addEventListener("touchmove", e => {
+  const t = e.touches[0];
+  const dx = t.clientX - touch.clientX;
+  const dy = t.clientY - touch.clientY;
+  player.x += dx * 0.2;
+  player.y += dy * 0.2;
+  touch = t;
+});
+canvas.addEventListener("touchend", () => touch = null);
+
+// AI 공격
+setInterval(() => {
+  const dx = player.x - enemy.x;
+  const dy = player.y - enemy.y;
+  const angle = Math.atan2(dy, dx);
+  enemy.bullets.push({
+    x: enemy.x,
+    y: enemy.y,
+    dx: Math.cos(angle) * 4,
+    dy: Math.sin(angle) * 4
+  });
+}, 1200);
+
+function update() {
+  // 이동
+  if (keys["ArrowUp"]) player.y -= 4;
+  if (keys["ArrowDown"]) player.y += 4;
+  if (keys["ArrowLeft"]) player.x -= 4;
+  if (keys["ArrowRight"]) player.x += 4;
+
+  // AI 랜덤 이동
+  if (Math.random() < 0.02) enemy.dirX *= -1;
+  if (Math.random() < 0.02) enemy.dirY *= -1;
+  enemy.x += enemy.dirX * 2;
+  enemy.y += enemy.dirY * 2;
+
+  // 경계 제한
+  player.x = Math.max(20, Math.min(780, player.x));
+  player.y = Math.max(20, Math.min(580, player.y));
+  enemy.x = Math.max(20, Math.min(780, enemy.x));
+  enemy.y = Math.max(20, Math.min(580, enemy.y));
+
+  // 총알 이동
+  moveBullets(player.bullets);
+  moveBullets(enemy.bullets);
+
+  // 충돌 체크
+  checkHits();
+
+  // 그리기
+  draw();
+
+  requestAnimationFrame(update);
+}
+
+function moveBullets(bullets) {
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.x += b.dx;
+    b.y += b.dy;
+    if (b.x < 0 || b.x > 800 || b.y < 0 || b.y > 600) bullets.splice(i, 1);
+  }
+}
+
+function checkHits() {
+  // 플레이어 총알 → 적
+  for (let i = player.bullets.length - 1; i >= 0; i--) {
+    const b = player.bullets[i];
+    if (dist(b.x, b.y, enemy.x, enemy.y) < enemy.size) {
+      player.bullets.splice(i, 1);
+      enemy.color = "#ff0000";
+      setTimeout(() => (enemy.color = "#ff4f4f"), 150);
+    }
+  }
+
+  // 적 총알 → 플레이어
+  for (let i = enemy.bullets.length - 1; i >= 0; i--) {
+    const b = enemy.bullets[i];
+    if (dist(b.x, b.y, player.x, player.y) < player.size) {
+      enemy.bullets.splice(i, 1);
+      player.hp -= 10;
+      document.getElementById("hp").textContent = player.hp;
+      player.color = "#aaa";
+      setTimeout(() => (player.color = "#4f8cff"), 150);
+      if (player.hp <= 0) {
+        alert("💀 패배! 새로고침해서 다시 시작!");
+        window.location.reload();
+      }
+    }
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 플레이어
+  ctx.fillStyle = player.color;
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 적
+  ctx.fillStyle = enemy.color;
+  ctx.beginPath();
+  ctx.arc(enemy.x, enemy.y, enemy.size, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 총알
+  ctx.fillStyle = "white";
+  drawBullets(player.bullets);
+  ctx.fillStyle = "#ff6666";
+  drawBullets(enemy.bullets);
+}
+
+function drawBullets(bullets) {
+  for (const b of bullets) {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function dist(x1, y1, x2, y2) {
+  return Math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2);
+}
+
+update();
+</script>
+</body>
+</html>
