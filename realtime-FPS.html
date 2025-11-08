@@ -1,26 +1,47 @@
-<div id="gameArea" style="position:relative;width:100vw;height:100vh;background:#ccc;"></div>
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>익명 2인용 FPS</title>
+<style>
+body,html{margin:0;padding:0;overflow:hidden;background:#222}
+#gameArea{position:relative;width:100vw;height:100vh;background:#333}
+.player{position:absolute;width:30px;height:30px;border-radius:50%;text-align:center;color:white;font-size:0.8rem;line-height:30px;}
+#me{background:blue;}
+#others{background:red;}
+</style>
+</head>
+<body>
+<div id="gameArea"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
 <script>
+const SUPABASE_URL = "https://wtifzpbzjkyfosffamrx.supabase.co";
+const SUPABASE_KEY = "YOUR_ANON_KEY";
 const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-let me = { username: prompt("닉네임"), x:50, y:50 };
+
+let me = { username: prompt("닉네임 입력:"), x:50, y:50 };
 let players = {};
 
 const gameArea = document.getElementById("gameArea");
+
 const myEl = document.createElement("div");
-myEl.style.width = myEl.style.height = "30px";
-myEl.style.background = "blue";
-myEl.style.position = "absolute";
+myEl.id = "me";
+myEl.className = "player";
+myEl.innerText = me.username;
 gameArea.appendChild(myEl);
 
 function render() {
   myEl.style.left = me.x + "px";
   myEl.style.top = me.y + "px";
+
   for(let u in players){
+    if(u===me.username) continue;
     let p = players[u];
     if(!p.el){
       p.el = document.createElement("div");
-      p.el.style.width = p.el.style.height = "30px";
-      p.el.style.background = "red";
-      p.el.style.position = "absolute";
+      p.el.className = "player";
+      p.el.innerText = p.username;
       gameArea.appendChild(p.el);
     }
     p.el.style.left = p.x + "px";
@@ -28,17 +49,25 @@ function render() {
   }
 }
 
+// 이동 처리
 document.addEventListener("keydown", e=>{
-  const step=5;
-  if(e.key==="w") me.y -= step;
-  if(e.key==="s") me.y += step;
-  if(e.key==="a") me.x -= step;
-  if(e.key==="d") me.x += step;
+  const step = 5;
+  if(e.key==="w") me.y-=step;
+  if(e.key==="s") me.y+=step;
+  if(e.key==="a") me.x-=step;
+  if(e.key==="d") me.x+=step;
+
   supabase.from("players").upsert([me]);
   render();
 });
 
-// Supabase Realtime 구독
-supabase.from("players").on("INSERT", payload => { players[payload.new.username] = payload.new; render(); }).subscribe();
-supabase.from("players").on("UPDATE", payload => { players[payload.new.username] = payload.new; render(); }).subscribe();
+// 초기 등록
+supabase.from("players").upsert([me]);
+
+// Realtime 구독
+supabase.from("players").on("INSERT", p => { players[p.new.username] = p.new; render(); }).subscribe();
+supabase.from("players").on("UPDATE", p => { players[p.new.username] = p.new; render(); }).subscribe();
+
 </script>
+</body>
+</html>
