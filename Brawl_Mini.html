@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Brawl Mini+</title>
 <style>
-  body {
+  html, body {
     margin: 0;
-    background: #1a1a1a;
+    padding: 0;
     overflow: hidden;
+    height: 100%;
+    background: #1a1a1a;
     font-family: "Pretendard", sans-serif;
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
   }
   #ui {
     position: absolute;
@@ -25,7 +26,6 @@
   }
   canvas {
     background: #2e2e2e;
-    border: 2px solid #555;
     border-radius: 10px;
     touch-action: none;
   }
@@ -33,30 +33,44 @@
 </head>
 <body>
 <div id="ui">❤️ HP: <span id="hp">100</span></div>
-<canvas id="game" width="800" height="600"></canvas>
+<canvas id="game"></canvas>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-const player = { x: 400, y: 300, size: 20, color: "#4f8cff", hp: 100, bullets: [] };
-const enemy = { x: 200, y: 150, size: 20, color: "#ff4f4f", dirX: 1, dirY: 1, bullets: [], hp: 50, alive: true };
+// 📱 화면 크기에 맞춰 캔버스 자동 조정
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+// 객체 초기화
+const player = { x: canvas.width / 2, y: canvas.height / 2, size: 20, color: "#4f8cff", hp: 100, bullets: [] };
+const enemy = { 
+  x: canvas.width / 4, 
+  y: canvas.height / 3, 
+  size: 20, 
+  color: "#ff4f4f", 
+  dirX: 1, dirY: 1, 
+  bullets: [], 
+  hp: 50, alive: true 
+};
 const keys = {};
 let touch = null;
 
+// 키보드 조작
 document.addEventListener("keydown", e => keys[e.key] = true);
 document.addEventListener("keyup", e => keys[e.key] = false);
 
-// 클릭/탭으로 총알 발사
+// 터치 / 클릭 조작
 canvas.addEventListener("click", e => fireBullet(e.clientX, e.clientY));
 canvas.addEventListener("touchstart", e => {
-  if (e.touches.length === 1) {
-    fireBullet(e.touches[0].clientX, e.touches[0].clientY);
-  } else {
-    touch = e.touches[0];
-  }
+  if (e.touches.length === 1) fireBullet(e.touches[0].clientX, e.touches[0].clientY);
+  else touch = e.touches[0];
 });
-
 canvas.addEventListener("touchmove", e => {
   const t = e.touches[0];
   if (touch) {
@@ -67,7 +81,6 @@ canvas.addEventListener("touchmove", e => {
     touch = t;
   }
 });
-
 canvas.addEventListener("touchend", () => touch = null);
 
 function fireBullet(x, y) {
@@ -98,11 +111,13 @@ setInterval(() => {
 }, 1200);
 
 function update() {
+  const speed = Math.max(canvas.width, canvas.height) * 0.004; // 크기에 따라 자동조정
+
   // 플레이어 이동
-  if (keys["ArrowUp"]) player.y -= 4;
-  if (keys["ArrowDown"]) player.y += 4;
-  if (keys["ArrowLeft"]) player.x -= 4;
-  if (keys["ArrowRight"]) player.x += 4;
+  if (keys["ArrowUp"]) player.y -= speed;
+  if (keys["ArrowDown"]) player.y += speed;
+  if (keys["ArrowLeft"]) player.x -= speed;
+  if (keys["ArrowRight"]) player.x += speed;
 
   // AI 이동
   if (enemy.alive) {
@@ -112,20 +127,12 @@ function update() {
     enemy.y += enemy.dirY * 2;
   }
 
-  // 벽 충돌 처리 (튕김)
   handleWalls(player);
   handleWalls(enemy, true);
-
-  // 총알 이동
   moveBullets(player.bullets);
   moveBullets(enemy.bullets);
-
-  // 충돌 판정
   checkHits();
-
-  // 그리기
   draw();
-
   requestAnimationFrame(update);
 }
 
@@ -134,7 +141,6 @@ function handleWalls(obj, bounce = false) {
   const maxX = canvas.width - obj.size;
   const minY = obj.size;
   const maxY = canvas.height - obj.size;
-
   if (obj.x < minX) { obj.x = minX; if (bounce) obj.dirX *= -1; }
   if (obj.x > maxX) { obj.x = maxX; if (bounce) obj.dirX *= -1; }
   if (obj.y < minY) { obj.y = minY; if (bounce) obj.dirY *= -1; }
@@ -186,19 +192,17 @@ function checkHits() {
 
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // 플레이어
   ctx.fillStyle = player.color;
   ctx.beginPath();
   ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
   ctx.fill();
 
-  // 적
   if (enemy.alive) {
     ctx.fillStyle = enemy.color;
     ctx.beginPath();
     ctx.arc(enemy.x, enemy.y, enemy.size, 0, Math.PI * 2);
     ctx.fill();
+
     // HP바
     ctx.fillStyle = "#fff";
     ctx.fillRect(enemy.x - 20, enemy.y - 30, 40, 6);
@@ -206,7 +210,6 @@ function draw() {
     ctx.fillRect(enemy.x - 20, enemy.y - 30, (enemy.hp / 50) * 40, 6);
   }
 
-  // 총알
   ctx.fillStyle = "white";
   drawBullets(player.bullets);
   ctx.fillStyle = "#ff6666";
