@@ -11,129 +11,111 @@
     overflow: hidden;
     height: 100%;
     background: #1a1a1a;
-    font-family: "Pretendard", sans-serif;
     display: flex;
     justify-content: center;
     align-items: center;
-  }
-  #ui {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    color: white;
-    font-size: 1.1rem;
-    z-index: 10;
   }
   canvas {
     background: #2e2e2e;
     border-radius: 10px;
     touch-action: none;
   }
+  #ui {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    font-family: "Pretendard", sans-serif;
+    font-size: 1.1rem;
+  }
 </style>
 </head>
 <body>
-<div id="ui">❤️ HP: <span id="hp">100</span></div>
 <canvas id="game"></canvas>
+<div id="ui">❤️ HP: <span id="hp">100</span></div>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-function resizeCanvas() {
+function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 }
-window.addEventListener("resize", resizeCanvas);
-resizeCanvas();
+window.addEventListener("resize", resize);
+resize();
 
-const player = { x: canvas.width / 2, y: canvas.height / 2, size: 20, color: "#4f8cff", hp: 100, bullets: [] };
-const enemy = { 
-  x: canvas.width / 4, 
-  y: canvas.height / 3, 
-  size: 20, 
-  color: "#ff4f4f", 
-  dirX: 1, dirY: 1, 
-  bullets: [], 
-  hp: 50, alive: true 
-};
+// === 플레이어, 적 기본값 ===
+const player = { x: canvas.width/2, y: canvas.height/2, size: 22, color:"#4f8cff", hp:100, bullets:[] };
+const enemy = { x: canvas.width/4, y: canvas.height/3, size: 22, color:"#ff4f4f", dirX:1, dirY:1, bullets:[], hp:50, alive:true };
 
 const keys = {};
 let joystick = null;
 let moveDir = {x:0,y:0};
 
-// 키보드 이동
+// === 키보드 이동 ===
 document.addEventListener("keydown", e => keys[e.key] = true);
 document.addEventListener("keyup", e => keys[e.key] = false);
 
-// 터치 조작 (왼쪽: 이동 / 오른쪽: 공격)
-canvas.addEventListener("touchstart", e => {
+// === 터치 이동 + 조이스틱 ===
+canvas.addEventListener("touchstart", e=>{
   const t = e.touches[0];
-  if (t.clientX < window.innerWidth / 2) {
-    joystick = {startX: t.clientX, startY: t.clientY};
+  if(t.clientX < window.innerWidth/2){
+    joystick = { startX:t.clientX, startY:t.clientY, x:t.clientX, y:t.clientY };
   } else {
     fireBullet(t.clientX, t.clientY);
   }
 });
-canvas.addEventListener("touchmove", e => {
-  if (joystick) {
+canvas.addEventListener("touchmove", e=>{
+  if(joystick){
     const t = e.touches[0];
     const dx = t.clientX - joystick.startX;
     const dy = t.clientY - joystick.startY;
-    const len = Math.hypot(dx, dy);
-    if (len > 0) {
-      moveDir.x = dx / len;
-      moveDir.y = dy / len;
-    }
+    const dist = Math.hypot(dx,dy);
+    const limit = 50;
+    const ratio = dist > limit ? limit/dist : 1;
+    joystick.x = joystick.startX + dx * ratio;
+    joystick.y = joystick.startY + dy * ratio;
+    moveDir = {x: dx/limit, y: dy/limit};
   }
 });
-canvas.addEventListener("touchend", e => {
+canvas.addEventListener("touchend", ()=>{
   joystick = null;
   moveDir = {x:0,y:0};
 });
 
-function fireBullet(x, y) {
-  const rect = canvas.getBoundingClientRect();
-  const dx = x - rect.left - player.x;
-  const dy = y - rect.top - player.y;
+function fireBullet(x, y){
+  const dx = x - player.x;
+  const dy = y - player.y;
   const angle = Math.atan2(dy, dx);
-  player.bullets.push({
-    x: player.x,
-    y: player.y,
-    dx: Math.cos(angle) * 6,
-    dy: Math.sin(angle) * 6
-  });
+  player.bullets.push({ x:player.x, y:player.y, dx:Math.cos(angle)*6, dy:Math.sin(angle)*6 });
 }
 
-setInterval(() => {
-  if (!enemy.alive) return;
+// === 적의 공격 AI ===
+setInterval(()=>{
+  if(!enemy.alive) return;
   const dx = player.x - enemy.x;
   const dy = player.y - enemy.y;
   const angle = Math.atan2(dy, dx);
-  enemy.bullets.push({
-    x: enemy.x,
-    y: enemy.y,
-    dx: Math.cos(angle) * 4,
-    dy: Math.sin(angle) * 4
-  });
-}, 1200);
+  enemy.bullets.push({ x:enemy.x, y:enemy.y, dx:Math.cos(angle)*4, dy:Math.sin(angle)*4 });
+}, 1300);
 
-function update() {
-  const speed = Math.max(canvas.width, canvas.height) * 0.004;
+// === 메인 루프 ===
+function update(){
+  const speed = Math.max(canvas.width,canvas.height)*0.004;
 
-  // 키보드 이동
-  if (keys["ArrowUp"]) player.y -= speed;
-  if (keys["ArrowDown"]) player.y += speed;
-  if (keys["ArrowLeft"]) player.x -= speed;
-  if (keys["ArrowRight"]) player.x += speed;
+  // 이동
+  if(keys["ArrowUp"]) player.y -= speed;
+  if(keys["ArrowDown"]) player.y += speed;
+  if(keys["ArrowLeft"]) player.x -= speed;
+  if(keys["ArrowRight"]) player.x += speed;
+  player.x += moveDir.x * speed * 5;
+  player.y += moveDir.y * speed * 5;
 
-  // 조이스틱 이동
-  player.x += moveDir.x * speed;
-  player.y += moveDir.y * speed;
-
-  // 적 이동 (랜덤)
-  if (enemy.alive) {
-    if (Math.random() < 0.02) enemy.dirX *= -1;
-    if (Math.random() < 0.02) enemy.dirY *= -1;
+  // 적 랜덤 이동
+  if(enemy.alive){
+    if(Math.random()<0.02) enemy.dirX *= -1;
+    if(Math.random()<0.02) enemy.dirY *= -1;
     enemy.x += enemy.dirX * 2;
     enemy.y += enemy.dirY * 2;
   }
@@ -147,93 +129,107 @@ function update() {
   requestAnimationFrame(update);
 }
 
-function handleWalls(obj, bounce = false) {
-  const minX = obj.size;
-  const maxX = canvas.width - obj.size;
-  const minY = obj.size;
-  const maxY = canvas.height - obj.size;
-  if (obj.x < minX) { obj.x = minX; if (bounce) obj.dirX *= -1; }
-  if (obj.x > maxX) { obj.x = maxX; if (bounce) obj.dirX *= -1; }
-  if (obj.y < minY) { obj.y = minY; if (bounce) obj.dirY *= -1; }
-  if (obj.y > maxY) { obj.y = maxY; if (bounce) obj.dirY *= -1; }
+// === 벽 충돌 ===
+function handleWalls(obj, bounce=false){
+  const minX=obj.size, maxX=canvas.width-obj.size, minY=obj.size, maxY=canvas.height-obj.size;
+  if(obj.x<minX){obj.x=minX;if(bounce)obj.dirX*=-1;}
+  if(obj.x>maxX){obj.x=maxX;if(bounce)obj.dirX*=-1;}
+  if(obj.y<minY){obj.y=minY;if(bounce)obj.dirY*=-1;}
+  if(obj.y>maxY){obj.y=maxY;if(bounce)obj.dirY*=-1;}
 }
 
-function moveBullets(bullets) {
-  for (let i = bullets.length - 1; i >= 0; i--) {
-    const b = bullets[i];
-    b.x += b.dx;
-    b.y += b.dy;
-    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height)
-      bullets.splice(i, 1);
+// === 총알 이동 ===
+function moveBullets(bullets){
+  for(let i=bullets.length-1;i>=0;i--){
+    const b=bullets[i];
+    b.x+=b.dx; b.y+=b.dy;
+    if(b.x<0||b.x>canvas.width||b.y<0||b.y>canvas.height) bullets.splice(i,1);
   }
 }
 
-function checkHits() {
-  for (let i = player.bullets.length - 1; i >= 0; i--) {
-    const b = player.bullets[i];
-    if (enemy.alive && dist(b.x, b.y, enemy.x, enemy.y) < enemy.size) {
-      player.bullets.splice(i, 1);
-      enemy.hp -= 10;
-      enemy.color = "#ff0000";
-      setTimeout(() => (enemy.color = "#ff4f4f"), 150);
-      if (enemy.hp <= 0) {
-        enemy.alive = false;
-        setTimeout(() => alert("🎉 승리! 새로고침으로 재시작!"), 100);
+// === 충돌 처리 ===
+function checkHits(){
+  for(let i=player.bullets.length-1;i>=0;i--){
+    const b=player.bullets[i];
+    if(enemy.alive && dist(b.x,b.y,enemy.x,enemy.y)<enemy.size){
+      player.bullets.splice(i,1);
+      enemy.hp-=10;
+      enemy.color="#ff0000";
+      setTimeout(()=>enemy.color="#ff4f4f",200);
+      if(enemy.hp<=0){
+        enemy.alive=false;
+        setTimeout(()=>alert("🎉 승리! 새로고침으로 재시작!"),100);
       }
     }
   }
-
-  for (let i = enemy.bullets.length - 1; i >= 0; i--) {
-    const b = enemy.bullets[i];
-    if (dist(b.x, b.y, player.x, player.y) < player.size) {
-      enemy.bullets.splice(i, 1);
-      player.hp -= 10;
+  for(let i=enemy.bullets.length-1;i>=0;i--){
+    const b=enemy.bullets[i];
+    if(dist(b.x,b.y,player.x,player.y)<player.size){
+      enemy.bullets.splice(i,1);
+      player.hp-=10;
       document.getElementById("hp").textContent = player.hp;
-      player.color = "#aaa";
-      setTimeout(() => (player.color = "#4f8cff"), 150);
-      if (player.hp <= 0) {
-        alert("💀 패배! 새로고침해서 다시 시작!");
-        window.location.reload();
+      player.color="#999";
+      setTimeout(()=>player.color="#4f8cff",200);
+      if(player.hp<=0){
+        alert("💀 패배! 새로고침으로 재시작!");
+        location.reload();
       }
     }
   }
 }
 
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = player.color;
+// === 거리 ===
+function dist(x1,y1,x2,y2){return Math.hypot(x1-x2,y1-y2);}
+
+// === 그리기 ===
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // 플레이어
+  ctx.fillStyle=player.color;
   ctx.beginPath();
-  ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+  ctx.arc(player.x,player.y,player.size,0,Math.PI*2);
   ctx.fill();
 
-  if (enemy.alive) {
-    ctx.fillStyle = enemy.color;
+  // 적
+  if(enemy.alive){
+    ctx.fillStyle=enemy.color;
     ctx.beginPath();
-    ctx.arc(enemy.x, enemy.y, enemy.size, 0, Math.PI * 2);
+    ctx.arc(enemy.x,enemy.y,enemy.size,0,Math.PI*2);
     ctx.fill();
 
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(enemy.x - 20, enemy.y - 30, 40, 6);
-    ctx.fillStyle = "#f00";
-    ctx.fillRect(enemy.x - 20, enemy.y - 30, (enemy.hp / 50) * 40, 6);
+    // HP 바
+    ctx.fillStyle="#fff";
+    ctx.fillRect(enemy.x-20,enemy.y-30,40,6);
+    ctx.fillStyle="#f00";
+    ctx.fillRect(enemy.x-20,enemy.y-30,(enemy.hp/50)*40,6);
   }
 
-  ctx.fillStyle = "white";
-  drawBullets(player.bullets);
-  ctx.fillStyle = "#ff6666";
-  drawBullets(enemy.bullets);
+  // 총알
+  ctx.fillStyle="white"; drawBullets(player.bullets);
+  ctx.fillStyle="#ff7777"; drawBullets(enemy.bullets);
+
+  // 조이스틱
+  if(joystick){
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    ctx.arc(joystick.startX, joystick.startY, 40, 0, Math.PI*2);
+    ctx.fillStyle="#888";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(joystick.x, joystick.y, 25, 0, Math.PI*2);
+    ctx.fillStyle="#ccc";
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+  }
 }
 
-function drawBullets(bullets) {
-  for (const b of bullets) {
+function drawBullets(bullets){
+  for(const b of bullets){
     ctx.beginPath();
-    ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+    ctx.arc(b.x,b.y,4,0,Math.PI*2);
     ctx.fill();
   }
-}
-
-function dist(x1, y1, x2, y2) {
-  return Math.hypot(x1 - x2, y1 - y2);
 }
 
 update();
