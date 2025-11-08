@@ -1,0 +1,44 @@
+<div id="gameArea" style="position:relative;width:100vw;height:100vh;background:#ccc;"></div>
+<script>
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let me = { username: prompt("닉네임"), x:50, y:50 };
+let players = {};
+
+const gameArea = document.getElementById("gameArea");
+const myEl = document.createElement("div");
+myEl.style.width = myEl.style.height = "30px";
+myEl.style.background = "blue";
+myEl.style.position = "absolute";
+gameArea.appendChild(myEl);
+
+function render() {
+  myEl.style.left = me.x + "px";
+  myEl.style.top = me.y + "px";
+  for(let u in players){
+    let p = players[u];
+    if(!p.el){
+      p.el = document.createElement("div");
+      p.el.style.width = p.el.style.height = "30px";
+      p.el.style.background = "red";
+      p.el.style.position = "absolute";
+      gameArea.appendChild(p.el);
+    }
+    p.el.style.left = p.x + "px";
+    p.el.style.top = p.y + "px";
+  }
+}
+
+document.addEventListener("keydown", e=>{
+  const step=5;
+  if(e.key==="w") me.y -= step;
+  if(e.key==="s") me.y += step;
+  if(e.key==="a") me.x -= step;
+  if(e.key==="d") me.x += step;
+  supabase.from("players").upsert([me]);
+  render();
+});
+
+// Supabase Realtime 구독
+supabase.from("players").on("INSERT", payload => { players[payload.new.username] = payload.new; render(); }).subscribe();
+supabase.from("players").on("UPDATE", payload => { players[payload.new.username] = payload.new; render(); }).subscribe();
+</script>
