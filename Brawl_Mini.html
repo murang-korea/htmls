@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko">
 <head>
-<meta charset="utf-8" />
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Brawl Mini</title>
 <style>
@@ -9,16 +9,16 @@
     margin: 0;
     padding: 0;
     overflow: hidden;
-    height: 100%;
     background: #1a1a1a;
+    height: 100%;
     display: flex;
     justify-content: center;
     align-items: center;
   }
   canvas {
     background: #2e2e2e;
-    border-radius: 10px;
     touch-action: none;
+    border-radius: 10px;
   }
   #ui {
     position: absolute;
@@ -41,27 +41,36 @@ const ctx = canvas.getContext("2d");
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
+  generateWalls(); // 화면 바뀌면 맵 새로 생성
 }
 window.addEventListener("resize", resize);
 resize();
 
-// ===== 기본 설정 =====
-const player = { x: canvas.width/2, y: canvas.height/2, size: 22, color:"#4f8cff", hp:100, bullets:[], canShoot:true };
-const enemy = { x: canvas.width/3, y: canvas.height/3, size: 22, color:"#ff4f4f", hp:50, alive:true, dirX:1, dirY:1, bullets:[] };
+const player = { x: 0, y: 0, size: 22, color:"#4f8cff", hp:100, bullets:[], canShoot:true };
+const enemy = { x: 0, y: 0, size: 22, color:"#ff4f4f", hp:50, alive:true, dirX:1, dirY:1, bullets:[] };
 let fireCooldown = 0;
 
-// ===== 벽 배열 (기기 크기에 맞춰 비율 적용) =====
+// === 랜덤 맵 생성 ===
 let walls = [];
-function createWalls() {
+function generateWalls() {
+  walls = [];
   const w = canvas.width, h = canvas.height;
-  walls = [
-    {x:w*0.25, y:h*0.3, width:w*0.2, height:20},
-    {x:w*0.6, y:h*0.5, width:w*0.25, height:20},
-    {x:w*0.4, y:h*0.7, width:w*0.2, height:20},
-  ];
+  const wallCount = Math.floor((w * h) / 90000); // 화면 크기에 비례한 벽 개수
+  for (let i = 0; i < wallCount; i++) {
+    const ww = Math.random() * (w * 0.15) + 50;
+    const hh = 20 + Math.random() * 40;
+    const wx = Math.random() * (w - ww);
+    const wy = Math.random() * (h - hh);
+    walls.push({x: wx, y: wy, width: ww, height: hh});
+  }
+
+  // 플레이어 / 적 초기 위치는 벽과 겹치지 않게 설정
+  player.x = w * 0.5;
+  player.y = h * 0.7;
+  enemy.x = w * 0.5;
+  enemy.y = h * 0.3;
 }
-createWalls();
-window.addEventListener("resize", createWalls);
+generateWalls();
 
 // ===== 조이스틱 상태 =====
 let moveStick = null;
@@ -143,10 +152,12 @@ function update(){
   player.x+=moveDir.x*speed*5;
   player.y+=moveDir.y*speed*5;
   fireCooldown=Math.max(0,fireCooldown-1);
+
   if(enemy.alive){
     if(Math.random()<0.02) enemy.dirX*=-1;
     if(Math.random()<0.02) enemy.dirY*=-1;
-    enemy.x+=enemy.dirX*2; enemy.y+=enemy.dirY*2;
+    enemy.x+=enemy.dirX*2;
+    enemy.y+=enemy.dirY*2;
   }
 
   handleWalls(player);
@@ -201,7 +212,6 @@ function dist(x1,y1,x2,y2){return Math.hypot(x1-x2,y1-y2);}
 // ===== 그리기 =====
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  // 벽
   ctx.fillStyle="#444";
   for(const w of walls){ ctx.fillRect(w.x,w.y,w.width,w.height); }
 
