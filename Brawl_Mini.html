@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-<title>Brawl Mini++</title>
+<title>Brawl Mini</title>
 <style>
   html, body {
     margin: 0;
@@ -45,105 +45,96 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// === 플레이어, 적 기본값 ===
+// ===== 기본 설정 =====
 const player = { 
-  x: canvas.width/2, 
-  y: canvas.height/2, 
-  size: 22, 
-  color:"#4f8cff", 
-  hp:100, 
-  bullets:[], 
-  canShoot:true 
+  x: canvas.width/2, y: canvas.height/2, 
+  size: 22, color:"#4f8cff", hp:100, 
+  bullets:[], canShoot:true
 };
-
 const enemy = { 
-  x: canvas.width/4, 
-  y: canvas.height/3, 
-  size: 22, 
-  color:"#ff4f4f", 
-  dirX:1, dirY:1, 
-  bullets:[], 
-  hp:50, 
-  alive:true 
+  x: canvas.width/3, y: canvas.height/3, 
+  size: 22, color:"#ff4f4f", hp:50, alive:true, dirX:1, dirY:1, bullets:[]
 };
 
-const keys = {};
-let moveJoystick = null;
-let fireButton = {x: canvas.width-90, y: canvas.height-90, r:50, active:false, cooldown:0};
+let moveStick = null;
+let fireStick = null;
 let moveDir = {x:0,y:0};
+let fireDir = {x:0,y:0};
+let fireCooldown = 0;
 
-// === 키보드 이동 ===
-document.addEventListener("keydown", e => keys[e.key] = true);
-document.addEventListener("keyup", e => keys[e.key] = false);
-
-// === 터치 조작 ===
+// ===== 터치 =====
 canvas.addEventListener("touchstart", e=>{
   for(const t of e.touches){
-    if(t.clientX < window.innerWidth/2){
-      moveJoystick = { startX:t.clientX, startY:t.clientY, x:t.clientX, y:t.clientY, id:t.identifier };
-    } else {
-      if (fireButton.cooldown <= 0) {
-        fireButton.active = true;
-        fireButton.cooldown = 1; // 1초 쿨타임
-        fireBullet(t.clientX, t.clientY);
-        setTimeout(()=>{ fireButton.cooldown = 0; }, 1000);
-      }
+    if(t.clientX < window.innerWidth/2){ // 왼쪽 이동스틱
+      moveStick = {id:t.identifier, sx:t.clientX, sy:t.clientY, x:t.clientX, y:t.clientY};
+    } else { // 오른쪽 발사스틱
+      fireStick = {id:t.identifier, sx:t.clientX, sy:t.clientY, x:t.clientX, y:t.clientY};
     }
   }
 });
 
 canvas.addEventListener("touchmove", e=>{
-  if(moveJoystick){
-    for(const t of e.touches){
-      if(t.identifier === moveJoystick.id){
-        const dx = t.clientX - moveJoystick.startX;
-        const dy = t.clientY - moveJoystick.startY;
-        const dist = Math.hypot(dx,dy);
-        const limit = 50;
-        const ratio = dist > limit ? limit/dist : 1;
-        moveJoystick.x = moveJoystick.startX + dx * ratio;
-        moveJoystick.y = moveJoystick.startY + dy * ratio;
-        moveDir = {x: dx/limit, y: dy/limit};
+  for(const t of e.touches){
+    // 이동스틱
+    if(moveStick && t.identifier === moveStick.id){
+      const dx = t.clientX - moveStick.sx;
+      const dy = t.clientY - moveStick.sy;
+      const dist = Math.hypot(dx,dy);
+      const limit = 50;
+      const ratio = dist > limit ? limit/dist : 1;
+      moveStick.x = moveStick.sx + dx * ratio;
+      moveStick.y = moveStick.sy + dy * ratio;
+      moveDir = {x: dx/limit, y: dy/limit};
+    }
+    // 발사스틱
+    if(fireStick && t.identifier === fireStick.id){
+      const dx = t.clientX - fireStick.sx;
+      const dy = t.clientY - fireStick.sy;
+      const dist = Math.hypot(dx,dy);
+      const limit = 50;
+      const ratio = dist > limit ? limit/dist : 1;
+      fireStick.x = fireStick.sx + dx * ratio;
+      fireStick.y = fireStick.sy + dy * ratio;
+      fireDir = {x: dx/limit, y: dy/limit};
+      if(fireCooldown<=0 && dist>20){
+        shoot(fireDir.x, fireDir.y);
+        fireCooldown = 20; // 쿨타임 프레임 단위 (약 0.3초)
       }
     }
   }
 });
 
 canvas.addEventListener("touchend", e=>{
-  moveJoystick = null;
-  moveDir = {x:0,y:0};
-  fireButton.active = false;
+  for(const t of e.changedTouches){
+    if(moveStick && t.identifier === moveStick.id){ moveStick = null; moveDir={x:0,y:0}; }
+    if(fireStick && t.identifier === fireStick.id){ fireStick = null; fireDir={x:0,y:0}; }
+  }
 });
 
-function fireBullet(x, y){
-  const dx = x - player.x;
-  const dy = y - player.y;
+function shoot(dx,dy){
   const angle = Math.atan2(dy, dx);
-  player.bullets.push({ x:player.x, y:player.y, dx:Math.cos(angle)*6, dy:Math.sin(angle)*6 });
+  player.bullets.push({
+    x:player.x, y:player.y, dx:Math.cos(angle)*8, dy:Math.sin(angle)*8
+  });
 }
 
-// === 적의 공격 AI ===
+// ===== 적 AI =====
 setInterval(()=>{
   if(!enemy.alive) return;
   const dx = player.x - enemy.x;
   const dy = player.y - enemy.y;
-  const angle = Math.atan2(dy, dx);
-  enemy.bullets.push({ x:enemy.x, y:enemy.y, dx:Math.cos(angle)*4, dy:Math.sin(angle)*4 });
+  const a = Math.atan2(dy,dx);
+  enemy.bullets.push({x:enemy.x,y:enemy.y,dx:Math.cos(a)*4,dy:Math.sin(a)*4});
 }, 1300);
 
-// === 메인 루프 ===
+// ===== 업데이트 =====
 function update(){
   const speed = Math.max(canvas.width,canvas.height)*0.004;
-
-  // 이동
-  if(keys["ArrowUp"]) player.y -= speed;
-  if(keys["ArrowDown"]) player.y += speed;
-  if(keys["ArrowLeft"]) player.x -= speed;
-  if(keys["ArrowRight"]) player.x += speed;
   player.x += moveDir.x * speed * 5;
   player.y += moveDir.y * speed * 5;
+  fireCooldown = Math.max(0, fireCooldown-1);
 
-  // 적 랜덤 이동
+  // 적 이동
   if(enemy.alive){
     if(Math.random()<0.02) enemy.dirX *= -1;
     if(Math.random()<0.02) enemy.dirY *= -1;
@@ -152,7 +143,7 @@ function update(){
   }
 
   handleWalls(player);
-  handleWalls(enemy, true);
+  handleWalls(enemy,true);
   moveBullets(player.bullets);
   moveBullets(enemy.bullets);
   checkHits();
@@ -160,36 +151,30 @@ function update(){
   requestAnimationFrame(update);
 }
 
-// === 벽 충돌 ===
-function handleWalls(obj, bounce=false){
-  const minX=obj.size, maxX=canvas.width-obj.size, minY=obj.size, maxY=canvas.height-obj.size;
-  if(obj.x<minX){obj.x=minX;if(bounce)obj.dirX*=-1;}
-  if(obj.x>maxX){obj.x=maxX;if(bounce)obj.dirX*=-1;}
-  if(obj.y<minY){obj.y=minY;if(bounce)obj.dirY*=-1;}
-  if(obj.y>maxY){obj.y=maxY;if(bounce)obj.dirY*=-1;}
+// ===== 충돌, 총알 등 =====
+function handleWalls(o,bounce=false){
+  const minX=o.size, maxX=canvas.width-o.size, minY=o.size, maxY=canvas.height-o.size;
+  if(o.x<minX){o.x=minX;if(bounce)o.dirX*=-1;}
+  if(o.x>maxX){o.x=maxX;if(bounce)o.dirX*=-1;}
+  if(o.y<minY){o.y=minY;if(bounce)o.dirY*=-1;}
+  if(o.y>maxY){o.y=maxY;if(bounce)o.dirY*=-1;}
 }
-
-// === 총알 이동 ===
-function moveBullets(bullets){
-  for(let i=bullets.length-1;i>=0;i--){
-    const b=bullets[i];
+function moveBullets(bul){
+  for(let i=bul.length-1;i>=0;i--){
+    const b=bul[i];
     b.x+=b.dx; b.y+=b.dy;
-    if(b.x<0||b.x>canvas.width||b.y<0||b.y>canvas.height) bullets.splice(i,1);
+    if(b.x<0||b.x>canvas.width||b.y<0||b.y>canvas.height) bul.splice(i,1);
   }
 }
-
-// === 충돌 처리 ===
 function checkHits(){
   for(let i=player.bullets.length-1;i>=0;i--){
     const b=player.bullets[i];
     if(enemy.alive && dist(b.x,b.y,enemy.x,enemy.y)<enemy.size){
       player.bullets.splice(i,1);
       enemy.hp-=10;
-      enemy.color="#ff0000";
-      setTimeout(()=>enemy.color="#ff4f4f",200);
       if(enemy.hp<=0){
         enemy.alive=false;
-        setTimeout(()=>alert("🎉 승리! 새로고침으로 재시작!"),100);
+        setTimeout(()=>alert("🎉 승리!"),100);
       }
     }
   }
@@ -198,76 +183,42 @@ function checkHits(){
     if(dist(b.x,b.y,player.x,player.y)<player.size){
       enemy.bullets.splice(i,1);
       player.hp-=10;
-      document.getElementById("hp").textContent = player.hp;
-      player.color="#999";
-      setTimeout(()=>player.color="#4f8cff",200);
-      if(player.hp<=0){
-        alert("💀 패배! 새로고침으로 재시작!");
-        location.reload();
-      }
+      document.getElementById("hp").textContent=player.hp;
+      if(player.hp<=0){ alert("💀 패배!"); location.reload(); }
     }
   }
 }
-
 function dist(x1,y1,x2,y2){return Math.hypot(x1-x2,y1-y2);}
 
-// === 그리기 ===
+// ===== 그리기 =====
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  // 플레이어
   ctx.fillStyle=player.color;
-  ctx.beginPath();
-  ctx.arc(player.x,player.y,player.size,0,Math.PI*2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(player.x,player.y,player.size,0,Math.PI*2); ctx.fill();
 
-  // 적
   if(enemy.alive){
     ctx.fillStyle=enemy.color;
-    ctx.beginPath();
-    ctx.arc(enemy.x,enemy.y,enemy.size,0,Math.PI*2);
-    ctx.fill();
-
-    // HP 바
+    ctx.beginPath(); ctx.arc(enemy.x,enemy.y,enemy.size,0,Math.PI*2); ctx.fill();
     ctx.fillStyle="#fff";
     ctx.fillRect(enemy.x-20,enemy.y-30,40,6);
     ctx.fillStyle="#f00";
     ctx.fillRect(enemy.x-20,enemy.y-30,(enemy.hp/50)*40,6);
   }
 
-  // 총알
-  ctx.fillStyle="white"; drawBullets(player.bullets);
-  ctx.fillStyle="#ff7777"; drawBullets(enemy.bullets);
+  ctx.fillStyle="#fff"; drawBullets(player.bullets);
+  ctx.fillStyle="#f77"; drawBullets(enemy.bullets);
 
-  // 이동 조이스틱
-  if(moveJoystick){
-    ctx.globalAlpha = 0.4;
-    ctx.beginPath();
-    ctx.arc(moveJoystick.startX, moveJoystick.startY, 40, 0, Math.PI*2);
-    ctx.fillStyle="#888";
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(moveJoystick.x, moveJoystick.y, 25, 0, Math.PI*2);
-    ctx.fillStyle="#ccc";
-    ctx.fill();
-    ctx.globalAlpha = 1.0;
-  }
-
-  // 발사 버튼
-  ctx.beginPath();
-  ctx.globalAlpha = fireButton.cooldown > 0 ? 0.3 : 0.6;
-  ctx.arc(fireButton.x, fireButton.y, fireButton.r, 0, Math.PI*2);
-  ctx.fillStyle = fireButton.cooldown > 0 ? "#666" : "#4f8cff";
-  ctx.fill();
-  ctx.globalAlpha = 1.0;
+  // 이동 스틱
+  if(moveStick) drawStick(moveStick);
+  // 발사 스틱
+  if(fireStick) drawStick(fireStick);
 }
-
-function drawBullets(bullets){
-  for(const b of bullets){
-    ctx.beginPath();
-    ctx.arc(b.x,b.y,4,0,Math.PI*2);
-    ctx.fill();
-  }
+function drawBullets(b){for(const x of b){ctx.beginPath();ctx.arc(x.x,x.y,4,0,Math.PI*2);ctx.fill();}}
+function drawStick(s){
+  ctx.globalAlpha=0.4;
+  ctx.beginPath();ctx.arc(s.sx,s.sy,40,0,Math.PI*2);ctx.fillStyle="#888";ctx.fill();
+  ctx.beginPath();ctx.arc(s.x,s.y,25,0,Math.PI*2);ctx.fillStyle="#ccc";ctx.fill();
+  ctx.globalAlpha=1.0;
 }
 
 update();
