@@ -46,109 +46,111 @@ window.addEventListener("resize", resize);
 resize();
 
 // ===== 기본 설정 =====
-const player = { 
-  x: canvas.width/2, y: canvas.height/2, 
-  size: 22, color:"#4f8cff", hp:100, 
-  bullets:[], canShoot:true
-};
-const enemy = { 
-  x: canvas.width/3, y: canvas.height/3, 
-  size: 22, color:"#ff4f4f", hp:50, alive:true, dirX:1, dirY:1, bullets:[]
-};
+const player = { x: canvas.width/2, y: canvas.height/2, size: 22, color:"#4f8cff", hp:100, bullets:[], canShoot:true };
+const enemy = { x: canvas.width/3, y: canvas.height/3, size: 22, color:"#ff4f4f", hp:50, alive:true, dirX:1, dirY:1, bullets:[] };
+let fireCooldown = 0;
 
+// ===== 벽 배열 (기기 크기에 맞춰 비율 적용) =====
+let walls = [];
+function createWalls() {
+  const w = canvas.width, h = canvas.height;
+  walls = [
+    {x:w*0.25, y:h*0.3, width:w*0.2, height:20},
+    {x:w*0.6, y:h*0.5, width:w*0.25, height:20},
+    {x:w*0.4, y:h*0.7, width:w*0.2, height:20},
+  ];
+}
+createWalls();
+window.addEventListener("resize", createWalls);
+
+// ===== 조이스틱 상태 =====
 let moveStick = null;
 let fireStick = null;
 let moveDir = {x:0,y:0};
 let aimDir = {x:0,y:0};
-let fireCooldown = 0;
 
-// ===== 터치 =====
+// ===== 터치 조작 =====
 canvas.addEventListener("touchstart", e=>{
   for(const t of e.touches){
-    if(t.clientX < window.innerWidth/2){ // 왼쪽 이동스틱
+    if(t.clientX < window.innerWidth/2){
       moveStick = {id:t.identifier, sx:t.clientX, sy:t.clientY, x:t.clientX, y:t.clientY};
-    } else { // 오른쪽 조준스틱
+    } else {
       fireStick = {id:t.identifier, sx:t.clientX, sy:t.clientY, x:t.clientX, y:t.clientY};
     }
   }
 });
-
 canvas.addEventListener("touchmove", e=>{
   for(const t of e.touches){
     if(moveStick && t.identifier === moveStick.id){
-      const dx = t.clientX - moveStick.sx;
-      const dy = t.clientY - moveStick.sy;
-      const dist = Math.hypot(dx,dy);
-      const limit = 50;
-      const ratio = dist > limit ? limit/dist : 1;
-      moveStick.x = moveStick.sx + dx * ratio;
-      moveStick.y = moveStick.sy + dy * ratio;
-      moveDir = {x: dx/limit, y: dy/limit};
+      const dx=t.clientX-moveStick.sx, dy=t.clientY-moveStick.sy;
+      const dist=Math.hypot(dx,dy), limit=50, r=Math.min(1,limit/dist);
+      moveStick.x=moveStick.sx+dx*r; moveStick.y=moveStick.sy+dy*r;
+      moveDir={x:dx/limit, y:dy/limit};
     }
     if(fireStick && t.identifier === fireStick.id){
-      const dx = t.clientX - fireStick.sx;
-      const dy = t.clientY - fireStick.sy;
-      const dist = Math.hypot(dx,dy);
-      const limit = 50;
-      const ratio = dist > limit ? limit/dist : 1;
-      fireStick.x = fireStick.sx + dx * ratio;
-      fireStick.y = fireStick.sy + dy * ratio;
-      aimDir = {x: dx/limit, y: dy/limit};
+      const dx=t.clientX-fireStick.sx, dy=t.clientY-fireStick.sy;
+      const dist=Math.hypot(dx,dy), limit=50, r=Math.min(1,limit/dist);
+      fireStick.x=fireStick.sx+dx*r; fireStick.y=fireStick.sy+dy*r;
+      aimDir={x:dx/limit, y:dy/limit};
     }
   }
 });
-
 canvas.addEventListener("touchend", e=>{
   for(const t of e.changedTouches){
-    // 이동 조이스틱
     if(moveStick && t.identifier === moveStick.id){
-      moveStick = null;
-      moveDir={x:0,y:0};
+      moveStick=null; moveDir={x:0,y:0};
     }
-    // 발사 조이스틱 (놓을 때 발사)
     if(fireStick && t.identifier === fireStick.id){
-      if(fireCooldown <= 0 && (Math.abs(aimDir.x) > 0.2 || Math.abs(aimDir.y) > 0.2)){
-        shoot(aimDir.x, aimDir.y);
-        fireCooldown = 20;
+      if(fireCooldown<=0 && (Math.abs(aimDir.x)>0.2||Math.abs(aimDir.y)>0.2)){
+        shoot(aimDir.x,aimDir.y);
+        fireCooldown=20;
       }
-      fireStick = null;
-      aimDir={x:0,y:0};
+      fireStick=null; aimDir={x:0,y:0};
     }
   }
 });
 
+// ===== 발사 =====
 function shoot(dx,dy){
-  const angle = Math.atan2(dy, dx);
-  player.bullets.push({
-    x:player.x, y:player.y, dx:Math.cos(angle)*8, dy:Math.sin(angle)*8
-  });
+  const angle=Math.atan2(dy,dx);
+  player.bullets.push({x:player.x,y:player.y,dx:Math.cos(angle)*8,dy:Math.sin(angle)*8});
 }
 
 // ===== 적 AI =====
 setInterval(()=>{
-  if(!enemy.alive) return;
-  const dx = player.x - enemy.x;
-  const dy = player.y - enemy.y;
-  const a = Math.atan2(dy,dx);
+  if(!enemy.alive)return;
+  const dx=player.x-enemy.x, dy=player.y-enemy.y, a=Math.atan2(dy,dx);
   enemy.bullets.push({x:enemy.x,y:enemy.y,dx:Math.cos(a)*4,dy:Math.sin(a)*4});
-}, 1300);
+},1300);
 
-// ===== 업데이트 =====
+// ===== 충돌 관련 =====
+function handleWalls(o){
+  for(const w of walls){
+    if(o.x+o.size>w.x && o.x-o.size<w.x+w.width && o.y+o.size>w.y && o.y-o.size<w.y+w.height){
+      // X방향 충돌
+      if(o.x<w.x) o.x=w.x-o.size;
+      else if(o.x>w.x+w.width) o.x=w.x+w.width+o.size;
+      // Y방향 충돌
+      if(o.y<w.y) o.y=w.y-o.size;
+      else if(o.y>w.y+w.height) o.y=w.y+w.height+o.size;
+    }
+  }
+}
+
+// ===== 게임 루프 =====
 function update(){
-  const speed = Math.max(canvas.width,canvas.height)*0.004;
-  player.x += moveDir.x * speed * 5;
-  player.y += moveDir.y * speed * 5;
-  fireCooldown = Math.max(0, fireCooldown-1);
-
+  const speed=Math.max(canvas.width,canvas.height)*0.004;
+  player.x+=moveDir.x*speed*5;
+  player.y+=moveDir.y*speed*5;
+  fireCooldown=Math.max(0,fireCooldown-1);
   if(enemy.alive){
-    if(Math.random()<0.02) enemy.dirX *= -1;
-    if(Math.random()<0.02) enemy.dirY *= -1;
-    enemy.x += enemy.dirX * 2;
-    enemy.y += enemy.dirY * 2;
+    if(Math.random()<0.02) enemy.dirX*=-1;
+    if(Math.random()<0.02) enemy.dirY*=-1;
+    enemy.x+=enemy.dirX*2; enemy.y+=enemy.dirY*2;
   }
 
   handleWalls(player);
-  handleWalls(enemy,true);
+  handleWalls(enemy);
   moveBullets(player.bullets);
   moveBullets(enemy.bullets);
   checkHits();
@@ -156,21 +158,22 @@ function update(){
   requestAnimationFrame(update);
 }
 
-// ===== 충돌, 총알 등 =====
-function handleWalls(o,bounce=false){
-  const minX=o.size, maxX=canvas.width-o.size, minY=o.size, maxY=canvas.height-o.size;
-  if(o.x<minX){o.x=minX;if(bounce)o.dirX*=-1;}
-  if(o.x>maxX){o.x=maxX;if(bounce)o.dirX*=-1;}
-  if(o.y<minY){o.y=minY;if(bounce)o.dirY*=-1;}
-  if(o.y>maxY){o.y=maxY;if(bounce)o.dirY*=-1;}
-}
 function moveBullets(bul){
   for(let i=bul.length-1;i>=0;i--){
     const b=bul[i];
     b.x+=b.dx; b.y+=b.dy;
-    if(b.x<0||b.x>canvas.width||b.y<0||b.y>canvas.height) bul.splice(i,1);
+    let hitWall=false;
+    for(const w of walls){
+      if(b.x>w.x && b.x<w.x+w.width && b.y>w.y && b.y<w.y+w.height){
+        hitWall=true; break;
+      }
+    }
+    if(hitWall||b.x<0||b.x>canvas.width||b.y<0||b.y>canvas.height){
+      bul.splice(i,1);
+    }
   }
 }
+
 function checkHits(){
   for(let i=player.bullets.length-1;i>=0;i--){
     const b=player.bullets[i];
@@ -198,6 +201,10 @@ function dist(x1,y1,x2,y2){return Math.hypot(x1-x2,y1-y2);}
 // ===== 그리기 =====
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
+  // 벽
+  ctx.fillStyle="#444";
+  for(const w of walls){ ctx.fillRect(w.x,w.y,w.width,w.height); }
+
   ctx.fillStyle=player.color;
   ctx.beginPath(); ctx.arc(player.x,player.y,player.size,0,Math.PI*2); ctx.fill();
 
