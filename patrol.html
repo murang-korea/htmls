@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Patrol</title>
+<title>patrol</title>
 <style>
   :root {
     --bg:#0f1724; --floor:#111827; --wall:#374151;
@@ -16,7 +16,6 @@
     border:2px solid rgba(255,255,255,0.08);position:relative;touch-action:none;}
   .stick{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,0.25);
     position:absolute;left:34px;top:34px;}
-  @media(max-width:420px){.joystick{width:96px;height:96px}.stick{width:44px;height:44px;left:26px;top:26px}}
   #msg {
     position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
     color:white;font-size:3rem;background:rgba(0,0,0,0.75);z-index:99;opacity:0;transition:opacity 0.6s;
@@ -37,21 +36,62 @@ const TILE=48,COLS=18,ROWS=12;
 const MAP_W=COLS*TILE,MAP_H=ROWS*TILE;
 let grid=[];
 
-function genMap(){
+// ---------------------------
+// 랜덤 맵 생성
+// ---------------------------
+function genRandomMap(){
   grid=Array.from({length:ROWS},()=>Array(COLS).fill(0));
+  // 테두리 벽
   for(let x=0;x<COLS;x++){grid[0][x]=1;grid[ROWS-1][x]=1;}
   for(let y=0;y<ROWS;y++){grid[y][0]=1;grid[y][COLS-1]=1;}
-  // 패턴 벽
-  for(let x=3;x<15;x++)grid[5][x]=1;
-  for(let y=2;y<8;y++)grid[y][9]=1;
+
+  // 무작위 벽 배치
+  for(let y=1;y<ROWS-1;y++){
+    for(let x=1;x<COLS-1;x++){
+      if(Math.random()<0.18) grid[y][x]=1;
+    }
+  }
+
+  // 랜덤 방 제거 (통로 확보)
+  for(let i=0;i<20;i++){
+    const rx=Math.floor(Math.random()*COLS);
+    const ry=Math.floor(Math.random()*ROWS);
+    for(let dy=-1;dy<=1;dy++){
+      for(let dx=-1;dx<=1;dx++){
+        const nx=rx+dx,ny=ry+dy;
+        if(nx>0&&ny>0&&nx<COLS-1&&ny<ROWS-1) grid[ny][nx]=0;
+      }
+    }
+  }
 }
-genMap();
+genRandomMap();
 
 function w2t(wx,wy){return {tx:Math.floor((wx+MAP_W/2)/TILE),ty:Math.floor((wy+MAP_H/2)/TILE)};}
+function t2w(tx,ty){return {x:tx*TILE+TILE/2-MAP_W/2,y:ty*TILE+TILE/2-MAP_H/2};}
 
 const player={x:0,y:0,r:14,spd:2.4,dir:0,fov:120,range:240};
-const guard={x:180,y:-120,r:16,spd:1.4,dir:0,fov:100,range:240,chasing:false};
+const guard={x:0,y:0,r:16,spd:1.4,dir:0,fov:100,range:240,chasing:false};
 
+// ---------------------------
+// 안전 스폰
+// ---------------------------
+function randomSpawn(entity){
+  let tries=0;
+  while(tries<500){
+    const tx=Math.floor(Math.random()*COLS);
+    const ty=Math.floor(Math.random()*ROWS);
+    if(grid[ty][tx]===0){
+      const {x,y}=t2w(tx,ty);
+      entity.x=x;entity.y=y;
+      if(!collide(entity.x,entity.y,entity.r))return;
+    }
+    tries++;
+  }
+}
+
+// ---------------------------
+// 충돌 감지
+// ---------------------------
 function collide(x,y,r){
   const {tx,ty}=w2t(x,y);
   for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
@@ -80,15 +120,13 @@ function rayBlocked(ax,ay,bx,by,step=6){
 }
 
 function drawFOVMask(px,py,dir,fov,range){
-  // 전체 어둡게 → 시야 부분 밝게 마스크
   const mask=ctx.createRadialGradient(px,py,0,px,py,range);
   mask.addColorStop(0,'rgba(0,0,0,0)');
   mask.addColorStop(1,'rgba(0,0,0,1)');
   ctx.save();
   ctx.beginPath();ctx.rect(-MAP_W/2,-MAP_H/2,MAP_W,MAP_H);
   ctx.moveTo(px,py);
-  const rays=[];
-  const step=fov/60;
+  const rays=[];const step=fov/60;
   for(let a=-fov/2;a<=fov/2;a+=step){
     const ang=(dir+a)*Math.PI/180;
     let ex=px+Math.cos(ang)*range,ey=py+Math.sin(ang)*range;
@@ -98,12 +136,9 @@ function drawFOVMask(px,py,dir,fov,range){
     }
     rays.push({x:ex,y:ey});
   }
-  ctx.moveTo(px,py);
-  for(const p of rays)ctx.lineTo(p.x,p.y);
-  ctx.closePath();
-  ctx.clip();
-  ctx.fillStyle=mask;
-  ctx.fillRect(-MAP_W/2,-MAP_H/2,MAP_W,MAP_H);
+  ctx.moveTo(px,py);for(const p of rays)ctx.lineTo(p.x,p.y);
+  ctx.closePath();ctx.clip();
+  ctx.fillStyle=mask;ctx.fillRect(-MAP_W/2,-MAP_H/2,MAP_W,MAP_H);
   ctx.restore();
 }
 
@@ -114,7 +149,7 @@ function drawGuardFOV(x,y,dir,fov,range){
     let ex=x+Math.cos(ang)*range,ey=y+Math.sin(ang)*range;
     for(let d=0;d<range;d+=6){
       const px=x+Math.cos(ang)*d,py=y+Math.sin(ang)*d;
-      if(rayBlocked(x,y,px,py,4)){ex=px;ey=py;break;}
+      if(rayBlocked(x,y,px,py,4)){ex=px;ey=yy;break;}
     }
     rays.push({x:ex,y:ey});
   }
@@ -141,8 +176,11 @@ joy.addEventListener('touchmove',e=>{
 },{passive:false});
 joy.addEventListener('touchend',()=>{drag=false;stick.style.transform='translate(0,0)';move={x:0,y:0};});
 
-/* 게임 루프 */
+/* 게임 시작 */
+randomSpawn(player);
+randomSpawn(guard);
 let gameOver=false;
+
 function update(){
   if(gameOver)return;
   const nx=player.x+move.x*player.spd,ny=player.y+move.y*player.spd;
@@ -158,22 +196,20 @@ function update(){
   
   if(seesPlayer){
     guard.chasing=true;
-    guard.spd=6; // 폭주
+    guard.spd=6;
     guard.dir=angleToPlayer;
   } else {
     guard.chasing=false;
     guard.spd=1.2;
-    guard.dir+=0.5; // 회전 순찰
+    guard.dir+=0.5;
   }
 
   const gx=guard.x+Math.cos(guard.dir*Math.PI/180)*guard.spd;
   const gy=guard.y+Math.sin(guard.dir*Math.PI/180)*guard.spd;
   if(!collide(gx,gy,guard.r)){guard.x=gx;guard.y=gy;}
 
-  // 충돌 체크 (닿으면 사망)
   if(Math.hypot(player.x-guard.x,player.y-guard.y)<player.r+guard.r){
-    gameOver=true;
-    document.getElementById('msg').classList.add('show');
+    gameOver=true;document.getElementById('msg').classList.add('show');
   }
 }
 
@@ -181,28 +217,17 @@ function draw(){
   ctx.clearRect(0,0,W,H);
   ctx.save();ctx.translate(W/2-player.x,H/2-player.y);
   ctx.fillStyle="#1e293b";ctx.fillRect(-MAP_W/2,-MAP_H/2,MAP_W,MAP_H);
-
-  // 벽
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
     if(grid[y][x]){
       const wx=x*TILE+TILE/2-MAP_W/2,wy=y*TILE+TILE/2-MAP_H/2;
       ctx.fillStyle="#374151";ctx.fillRect(wx-TILE/2,wy-TILE/2,TILE,TILE);
     }
   }
-
-  // 적 시야
   drawGuardFOV(guard.x,guard.y,guard.dir,guard.fov,guard.range);
-
-  // 적
   ctx.fillStyle=guard.chasing?"#f87171":"#ef4444";
   ctx.beginPath();ctx.arc(guard.x,guard.y,16,0,Math.PI*2);ctx.fill();
-
-  // 플레이어
   ctx.fillStyle="#34d399";ctx.beginPath();ctx.arc(player.x,player.y,14,0,Math.PI*2);ctx.fill();
-
-  // 플레이어 시야 마스크
   drawFOVMask(player.x,player.y,player.dir,player.fov,player.range);
-
   ctx.restore();
 }
 
