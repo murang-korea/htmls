@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Patrol</title>
+<style>
+  :root{
+    --bg:#0f1724; --floor:#111827; --wall:#374151; --player:#34d399; --guard:#fb7185;
+    --fov: rgba(251,113,133,0.12);
+  }
+  html,body{height:100%;margin:0;background:var(--bg);overflow:hidden;font-family:Inter,system-ui,Arial}
+  canvas{display:block;background:var(--floor);width:100vw;height:100vh}
+  /* 조이스틱: 화면 중앙 아래 */
+  .joy-wrap{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:30}
+  .joystick {
+    width:120px;height:120px;border-radius:50%;
+    background:rgba(255,255,255,0.04);border:2px solid rgba(255,255,255,0.06);
+    position:relative;touch-action:none;
+  }
+  .stick {
+    width:52px;height:52px;border-radius:50%;
+    background:rgba(255,255,255,0.22);position:absolute;left:34px;top:34px;
+  }
+  .hud {
+    position:fixed;left:12px;top:12px;color:#fff;z-index:40;font-size:14px;
+  }
+  .center-msg{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);color:white;
+    background:rgba(0,0,0,0.5);padding:14px 18px;border-radius:8px;z-index:50;text-align:center;
+  }
+  @media (max-width:420px){
+    .joystick{width:96px;height:96px}.stick{width:44px;height:44px;left:26px;top:26px}
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="joy-wrap" aria-hidden="true">
+  <div id="joy" class="joystick"><div class="stick" id="stick"></div></div>
+</div>
+
+<div class="hud" id="hud">상태: 준비</div>
+<div id="msg" class="center-msg" style="display:none"></div>
+
+<script>
+/* =========================
+   Stealth Patrol Game
+   - Tile-based map + A* for guard chase
+   - Guards patrol along waypoints
+   - Guard has FOV cone; if player inside & not blocked -> detected
+   - Player controlled by touch joystick (center bottom)
+   ========================= */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W = innerWidth, H = innerHeight;
+canvas.width = W; canvas.height = H;
+
+// MAP (grid)
+const TILE = 48;            // tile pixel
+const COLS = 20, ROWS = 14; // grid size
+const MAP_W = COLS * TILE, MAP_H = ROWS * TILE;
+
+// grid: 0 free, 1 wall
+let grid = [];
+function generateMap(){
+  grid = new Array(ROWS);
+  for(let y=0;y<ROWS;y++){
+    grid[y]=new Array(COLS).fill(0);
+  }
+  // outer walls
+  for(let x=0;x<COLS;x++){ grid[0][x]=1; grid[ROWS-1][x]=1; }
+  for(let y=0;y<ROWS;y++){ grid[y][0]=1; grid[y][COLS-1]=1; }
+
+  // create rooms / corridors predictable (not random)
+  // carve a few rectangular walls to make corridors
+  const blocks = [
+    {x:3,y:2,w:6,h:1},
+    {x:3,y:5,w:1,h:6},
+    {x:8,y:3,w:1,h:6},
+    {x:11,y:2,w:6,h:1},
+    {x:6,y:10,w:8,h:1},
+    {x:14,y:6,w:1,h:4},
+  ];
+  for(const b of blocks){
+    for(let yy=b.y;yy<b.y+b.h;yy++) for(let xx=b.x;xx<b.x+b.w;xx++) if(yy>=0&&yy<ROWS&&xx>=0&&xx<COLS) grid[yy][xx]=1;
+  }
+}
+generateMap();
+
+// convert between tile coords and world coords (center)
+function tileToWorld(tx,ty){ return { x: tx*TILE + TILE/2 - MAP_W/2, y: ty*TILE + TILE/2 - MAP_H/2 }; }
+function worldToTile(wx,wy){ return { tx: Math.floor((wx + MAP_W/2) / TILE), ty: Math.floor((wy + MAP_H/2) / TILE) }; }
+
+// Player
+const player = {
+  x: 0, y: 0, r: 14,
+  speed: 2.4
+};
+
+// place player at safe tile
+(function placePlayer(){
+  // choose tile near center
+  const start = { tx: Math.floor(COLS/2), ty: Math.floor(ROWS/2) };
+  const w = tileToWorld(start.tx, start.ty);
+  player.x = w.x; player.y = w.y;
+})();
+
+// Guards (patrollers) - define patrol waypoints in tile coords
+const guards = [
+  { waypoints:[{tx:4,ty:3},{tx:9,ty:3},{tx:9,ty:6},{tx:4,ty:6}], ti:0, x:0,y:0, speed:1.4, fov:90, range:220, state:'patrol', path:[], pathStep:0 },
+  { waypoints:[{tx:14,ty:3},{tx:17,ty:3},{tx:17,ty:6},{tx:14,ty:6}], ti:0, x:0,y:0, speed:1.2, fov:80, range:200, state:'patrol', path:[], pathStep:0 },
+  { waypoints:[{tx:10,ty:11},{tx:6,ty:11}], ti:0, x:0,y:0, speed:1.1, fov:100, range:180, state:'patrol', path:[], pathStep:0 }
+];
+// set initial world positions and ensure not inside wall
+for(const g of guards){
+  const w = tileToWorld(g.waypoints[0].tx, g.waypoints[0].ty);
+  g.x = w.x; g.y = w.y;
+}
+
+// camera follows player
+function worldToScreen(wx,wy){
+  const cx = player.x, cy = player.y;
+  const sx = W/2 + (wx - cx);
+  const sy = H/2 + (wy - cy);
+  return { sx, sy };
+}
+
+// collision with walls (circle vs tile rect)
+function collidesWallAtWorld(x,y,rad){
+  const tile = worldToTile(x,y);
+  // check 4 neighbor tiles to be safe
+  for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+    const tx = tile.tx + dx, ty = tile.ty + dy;
+    if(tx<0||tx>=COLS||ty<0||ty>=ROWS) continue;
+    if(grid[ty][tx]===1){
+      const w = tileToWorld(tx,ty);
+      const rx = w.x - TILE/2, ry = w.y - TILE/2;
+      const rw = TILE, rh = TILE;
+      // circle-rect
+      const testX = Math.max(rx, Math.min(x, rx+rw));
+      const testY = Math.max(ry, Math.min(y, ry+rh));
+      const dx0 = x - testX, dy0 = y - testY;
+      if(dx0*dx0 + dy0*dy0 < rad*rad) return true;
+    }
+  }
+  return false;
+}
+
+// simple raycast between two world points: returns true if blocked by wall
+function rayBlocked(ax,ay,bx,by,step=6){
+  const dx = bx-ax, dy = by-ay;
+  const L = Math.hypot(dx,dy);
+  const nx = dx/L, ny = dy/L;
+  let t = 0;
+  while(t < L){
+    const px = ax + nx*t, py = ay + ny*t;
+    const tile = worldToTile(px,py);
+    if(tile.tx>=0 && tile.tx<COLS && tile.ty>=0 && tile.ty<ROWS && grid[tile.ty][tile.tx]===1) return true;
+    t += step;
+  }
+  return false;
+}
+
+/* ---------- A* pathfinding on tile grid ---------- */
+function findPathTiles(sx,sy,tx,ty){
+  const key = (x,y)=> x+','+y;
+  const start = {x:sx,y:sy};
+  const goal = {x:tx,y:ty};
+  const open = [start];
+  const came = {};
+  const g = {}; const f = {};
+  g[key(sx,sy)]=0; f[key(sx,sy)]=heuristic(sx,sy,tx,ty);
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  while(open.length){
+    open.sort((a,b)=>f[key(a.x,a.y)]-f[key(b.x,b.y)]);
+    const cur = open.shift();
+    if(cur.x===goal.x && cur.y===goal.y) { // reconstruct
+      const path = [];
+      let k = key(cur.x,cur.y);
+      while(came[k]){ const [px,py]=k.split(',').map(Number); path.unshift({tx:px,ty:py}); k=came[k]; }
+      return path;
+    }
+    for(const d of dirs){
+      const nx = cur.x + d[0], ny = cur.y + d[1];
+      if(nx<0||ny<0||nx>=COLS||ny>=ROWS) continue;
+      if(grid[ny][nx]===1) continue;
+      const nk = key(nx,ny);
+      const ng = g[key(cur.x,cur.y)] + 1;
+      if(g[nk]===undefined || ng < g[nk]){
+        g[nk]=ng;
+        f[nk]=ng + heuristic(nx,ny,tx,ty);
+        came[nk]=key(cur.x,cur.y);
+        if(!open.find(o=>o.x===nx&&o.y===ny)) open.push({x:nx,y:ny});
+      }
+    }
+  }
+  return []; // no path
+}
+function heuristic(x1,y1,x2,y2){ return Math.abs(x1-x2)+Math.abs(y1-y2); }
+
+/* ---------- Guard AI ---------- */
+function updateGuard(g, dt){
+  // dt not used much; tile positions
+  const pTile = worldToTile(player.x, player.y);
+  const gTile = worldToTile(g.x, g.y);
+  // detection: in FOV cone AND within range AND not blocked
+  const dx = player.x - g.x, dy = player.y - g.y;
+  const dist = Math.hypot(dx,dy);
+  const forward = g.fwd || 0; // direction vector for guard's facing
+  // compute guard facing from current waypoint to next
+  if(!g.fwd){
+    // set from current waypoint to next
+    const w0 = g.waypoints[g.ti];
+    const w1 = g.waypoints[(g.ti+1)%g.waypoints.length];
+    const w0w = tileToWorld(w0.tx,w0.ty), w1w = tileToWorld(w1.tx,w1.ty];
+    g.fwd = Math.atan2(w1w.y - w0w.y, w1w.x - w0w.x);
+  }
+  const facingAngle = g.fwd;
+  const angToPlayer = Math.atan2(dy,dx);
+  let diff = Math.abs(((angToPlayer - facingAngle + Math.PI) % (2*Math.PI)) - Math.PI);
+
+  const inFov = (diff * 180/Math.PI) <= (g.fov/2) && dist <= g.range;
+  const blocked = rayBlocked(g.x,g.y,player.x,player.y,6);
+  const sees = inFov && !blocked;
+
+  if(sees){
+    // enter chase: compute path using A*
+    if(g.state !== 'chase'){
+      g.state = 'chase';
+      const path = findPathTiles(worldToTile(g.x,g.y).tx, worldToTile(g.x,g.y).ty, pTile.tx, pTile.ty);
+      g.path = path;
+      g.pathStep = 0;
+    } else {
+      // refresh path periodically
+      if(Math.random() < 0.02) {
+        const path = findPathTiles(worldToTile(g.x,g.y).tx, worldToTile(g.x,g.y).ty, pTile.tx, pTile.ty);
+        g.path = path; g.pathStep=0;
+      }
+    }
+  } else {
+    // lose sight -> patrol
+    if(g.state === 'chase'){
+      g.state = 'search';
+      g.searchTimer = 120; // try to search for some frames
+    } else if(g.state === 'search'){
+      g.searchTimer--;
+      if(g.searchTimer <=0) { g.state='patrol'; g.path=[]; g.pathStep=0; }
+    }
+  }
+
+  // movement according to state
+  if(g.state === 'patrol'){
+    // follow waypoints (tile centers) with simple movement
+    const curWp = g.waypoints[g.ti];
+    const wpWorld = tileToWorld(curWp.tx, curWp.ty);
+    const vx = wpWorld.x - g.x, vy = wpWorld.y - g.y;
+    const d = Math.hypot(vx,vy);
+    if(d < 6){
+      g.ti = (g.ti + 1) % g.waypoints.length;
+      // update facing
+      const nextWp = g.waypoints[g.ti];
+      const nw = tileToWorld(nextWp.tx,nextWp.ty);
+      g.fwd = Math.atan2(nw.y - wpWorld.y, nw.x - wpWorld.x);
+    } else {
+      const nx = g.x + (vx/d) * g.speed;
+      const ny = g.y + (vy/d) * g.speed;
+      if(!collidesWallAtWorld(nx,ny,g.r)) { g.x = nx; g.y = ny; }
+    }
+  } else if(g.state === 'chase' && g.path && g.path.length){
+    // follow path tiles
+    const step = g.path[g.pathStep];
+    if(!step){
+      // path may be finished
+      g.path = [];
+    } else {
+      const targetW = tileToWorld(step.tx, step.ty);
+      const vx = targetW.x - g.x, vy = targetW.y - g.y;
+      const d = Math.hypot(vx,vy);
+      if(d < 6){
+        g.pathStep++;
+        if(g.pathStep >= g.path.length){
+          // recompute next tick
+          g.path = [];
+        }
+      } else {
+        const nx = g.x + (vx/d) * g.speed * 1.1;
+        const ny = g.y + (vy/d) * g.speed * 1.1;
+        if(!collidesWallAtWorld(nx,ny,g.r)){ g.x = nx; g.y = ny; }
+      }
+    }
+  } else if(g.state === 'search'){
+    // simple look-around (stay around)
+    // small random jitter to give life
+    const nx = g.x + (Math.random()-0.5)*0.6;
+    const ny = g.y + (Math.random()-0.5)*0.6;
+    if(!collidesWallAtWorld(nx,ny,g.r)){ g.x = nx; g.y = ny; }
+  }
+}
+
+/* ---------- joystick handling ---------- */
+const joy = document.getElementById('joy');
+const stick = document.getElementById('stick');
+let dragging = false, ox=0, oy=0;
+let move = {x:0,y:0};
+
+joy.addEventListener('touchstart', e=>{
+  dragging = true;
+}, {passive:false});
+joy.addEventListener('touchmove', e=>{
+  if(!dragging) return;
+  const t = e.touches[0];
+  const rect = joy.getBoundingClientRect();
+  const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+  const dx = t.clientX - cx, dy = t.clientY - cy;
+  const dist = Math.min(Math.hypot(dx,dy), 40);
+  const ang = Math.atan2(dy,dx);
+  stick.style.transform = `translate(${Math.cos(ang)*dist}px, ${Math.sin(ang)*dist}px)`;
+  move.x = Math.cos(ang) * (dist/40);
+  move.y = Math.sin(ang) * (dist/40);
+  e.preventDefault();
+}, {passive:false});
+joy.addEventListener('touchend', e=>{
+  dragging = false;
+  stick.style.transform = 'translate(0,0)';
+  move.x = 0; move.y = 0;
+});
+
+/* ---------- game loop ---------- */
+let detected = false;
+const hud = document.getElementById('hud');
+const msg = document.getElementById('msg');
+function showMsg(text){
+  msg.style.display='block'; msg.innerHTML = text;
+}
+function hideMsg(){ msg.style.display='none'; }
+
+function resetGame(){
+  // reset player, guards
+  const center = tileToWorld(Math.floor(COLS/2), Math.floor(ROWS/2));
+  player.x = center.x; player.y = center.y;
+  guards.forEach((g,idx)=>{
+    const w = g.waypoints[0];
+    const wpos = tileToWorld(w.tx, w.ty);
+    g.x = wpos.x; g.y = wpos.y; g.ti = 0; g.state='patrol'; g.path=[]; g.pathStep=0; g.fwd = undefined;
+  });
+  detected = false; hideMsg();
+}
+
+// ensure guards aren't spawned inside wall (shouldn't be, but safety)
+for(const g of guards){
+  if(collidesWallAtWorld(g.x,g.y,g.r)){
+    // find nearest free tile
+    outer:
+    for(let ty=1; ty<ROWS-1; ty++) for(let tx=1; tx<COLS-1; tx++){
+      if(grid[ty][tx]===0){
+        const w = tileToWorld(tx,ty);
+        g.x = w.x; g.y = w.y; break outer;
+      }
+    }
+  }
+}
+
+// main update/draw
+function update(){
+  if(detected) return;
+
+  // player movement with collision
+  const spd = player.speed;
+  const nx = player.x + move.x * spd;
+  const ny = player.y + move.y * spd;
+  if(!collidesWallAtWorld(nx, player.y, player.r)) player.x = nx;
+  if(!collidesWallAtWorld(player.x, ny, player.r)) player.y = ny;
+
+  // update guards
+  for(const g of guards) updateGuard(g);
+
+  // detection: if any guard currently sees player -> game over
+  for(const g of guards){
+    const dx = player.x - g.x, dy = player.y - g.y;
+    const d = Math.hypot(dx,dy);
+    if(d <= g.range){
+      const angToPlayer = Math.atan2(dy,dx);
+      // compute guard facing (if not set, approximate by movement or waypoint)
+      let facing = g.fwd;
+      if(!facing){
+        // try derive from next waypoint if exists
+        const curWp = g.waypoints[g.ti];
+        const nextWp = g.waypoints[(g.ti+1)%g.waypoints.length];
+        const wp0 = tileToWorld(curWp.tx,curWp.ty), wp1 = tileToWorld(nextWp.tx,nextWp.ty);
+        facing = Math.atan2(wp1.y - wp0.y, wp1.x - wp0.x);
+      }
+      let angDiff = Math.abs(((angToPlayer - facing + Math.PI) % (2*Math.PI)) - Math.PI);
+      const inFov = (angDiff * 180/Math.PI) <= (g.fov/2);
+      const blocked = rayBlocked(g.x,g.y,player.x,player.y,6);
+      if(inFov && !blocked){
+        // detected!
+        detected = true;
+        hud.innerText = '발견됨!';
+        showMsg('발견되었다! 다시 시작하려면 화면을 탭하세요.');
+        break;
+      }
+    }
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // camera centered on player
+  const camX = player.x, camY = player.y;
+  ctx.save();
+  ctx.translate(W/2 - camX, H/2 - camY);
+
+  // floor
+  ctx.fillStyle = '#1f2937';
+  ctx.fillRect(-MAP_W/2, -MAP_H/2, MAP_W, MAP_H);
+
+  // draw grid walls
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      if(grid[y][x]===1){
+        const w = tileToWorld(x,y);
+        ctx.fillStyle = '#374151';
+        ctx.fillRect(w.x - TILE/2, w.y - TILE/2, TILE, TILE);
+      }
+    }
+  }
+
+  // draw guards' FOV cone first (semi transparent)
+  for(const g of guards){
+    // facing vector
+    let facing = g.fwd || 0;
+    // convert degrees to rad half-angle
+    const half = (g.fov/2) * Math.PI/180;
+    // draw cone as triangle fan
+    ctx.beginPath();
+    ctx.moveTo(g.x, g.y);
+    const steps = 18;
+    for(let i=0;i<=steps;i++){
+      const a = facing - half + (i/steps) * (2*half);
+      const rx = g.x + Math.cos(a) * g.range;
+      const ry = g.y + Math.sin(a) * g.range;
+      ctx.lineTo(rx, ry);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(251,113,133,0.08)';
+    ctx.fill();
+  }
+
+  // draw guards
+  for(const g of guards){
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath(); ctx.arc(g.x, g.y, 14, 0, Math.PI*2); ctx.fill();
+    // HP bar (not used now) and small indicator
+    ctx.fillStyle = '#000'; ctx.fillRect(g.x-18, g.y-26, 36, 6);
+    ctx.fillStyle = '#10b981'; ctx.fillRect(g.x-18, g.y-26, 36, 6);
+  }
+
+  // draw player
+  ctx.fillStyle = '#34d399';
+  ctx.beginPath(); ctx.arc(player.x, player.y, player.r,0,Math.PI*2); ctx.fill();
+
+  ctx.restore();
+
+  // HUD
+  hud.innerText = detected ? '발견됨' : '숨기: 순찰자를 피하세요';
+}
+
+function loop(){
+  update(); draw();
+  requestAnimationFrame(loop);
+}
+loop();
+
+/* handle taps to restart if detected */
+window.addEventListener('touchstart', ()=>{
+  if(detected) { resetGame(); detected=false; hud.innerText='다시 시작'; hideMsg(); }
+});
+
+/* resize */
+window.addEventListener('resize', ()=>{
+  W = innerWidth; H = innerHeight;
+  canvas.width = W; canvas.height = H;
+});
+
+// expose values for debug
+window._game = { player, guards, grid };
+
+</script>
+</body>
+</html>
