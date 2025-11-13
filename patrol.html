@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"/>
-<title>patrol</title>
+<title>Stealth Rush</title>
 <style>
   :root{
     --bg:#0b1220; --floor:#0f1724; --wall:#334155; --player:#34d399; --enemy:#ef4444;
@@ -47,439 +47,203 @@
 <body>
 <canvas id="canvas"></canvas>
 
-<div class="joystick" id="joy" aria-hidden="true"><div class="stick" id="stick"></div></div>
+<div class="joystick" id="joy"><div class="stick" id="stick"></div></div>
 <div id="msg">GAME OVER<br><small>화면을 탭하면 재시작</small></div>
 
 <script>
-/* ===========================
-   Stealth Rush — 안정판(동작 보장)
-   Single-file, 모바일 support
-   =========================== */
-
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d', { alpha: false });
-
 let W = window.innerWidth, H = window.innerHeight;
 canvas.width = W; canvas.height = H;
 
-/* ---------- MAP & TILE ---------- */
-const TILE = 48;
-const COLS = 18;
-const ROWS = 12;
-const MAP_W = COLS * TILE;
-const MAP_H = ROWS * TILE;
-let grid = []; // 0 free, 1 wall
+const TILE = 48, COLS = 18, ROWS = 12;
+const MAP_W = COLS*TILE, MAP_H = ROWS*TILE;
+let grid = [];
 
-function genRandomMap(){
-  grid = Array.from({length: ROWS}, ()=>Array.from({length: COLS}, ()=>0));
-  // outer walls
+/* ---------- MAP GENERATION ---------- */
+function genMap(){
+  grid = Array.from({length:ROWS},()=>Array.from({length:COLS},()=>0));
   for(let x=0;x<COLS;x++){ grid[0][x]=1; grid[ROWS-1][x]=1; }
   for(let y=0;y<ROWS;y++){ grid[y][0]=1; grid[y][COLS-1]=1; }
-  // random interior walls with some probing to keep reachable
   for(let y=1;y<ROWS-1;y++){
     for(let x=1;x<COLS-1;x++){
-      if(Math.random() < 0.18) grid[y][x]=1;
+      if(Math.random()<0.18) grid[y][x]=1;
     }
   }
-  // punch out some rooms to ensure corridors
   for(let i=0;i<30;i++){
-    const rx = Math.floor(Math.random()*(COLS-2))+1;
-    const ry = Math.floor(Math.random()*(ROWS-2))+1;
-    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
-      const nx = rx+dx, ny = ry+dy;
-      if(nx>0 && ny>0 && nx<COLS-1 && ny<ROWS-1) grid[ny][nx] = 0;
-    }
-  }
-  // ensure connectivity: simple flood from center and clear isolated walls if needed
-  ensureConnectivity();
-}
-
-function ensureConnectivity(){
-  // flood fill from center tile, mark reachable free tiles
-  const sx = Math.floor(COLS/2), sy = Math.floor(ROWS/2);
-  const visited = Array.from({length:ROWS}, ()=>Array(COLS).fill(false));
-  const stack = [[sx,sy]];
-  if(grid[sy][sx]===1){
-    // find nearest free
-    for(let r=1;r<Math.max(COLS,ROWS);r++){
-      let found=false;
-      for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){
-        const nx=sx+dx, ny=sy+dy;
-        if(nx>0 && ny>0 && nx<COLS-1 && ny<ROWS-1 && grid[ny][nx]===0){ stack.length=0; stack.push([nx,ny]); found=true; break; }
-      if(found) break;
-      } if(stack.length) break;
-    }
-  }
-  while(stack.length){
-    const [x,y]=stack.pop();
-    if(visited[y][x]) continue;
-    visited[y][x]=true;
-    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
-      const nx=x+dx, ny=y+dy;
-      if(nx>0 && ny>0 && nx<COLS-1 && ny<ROWS-1 && !visited[ny][nx] && grid[ny][nx]===0) stack.push([nx,ny]);
-    });
-  }
-  // any free tile not visited -> clear a path to nearest visited tile
-  for(let y=1;y<ROWS-1;y++) for(let x=1;x<COLS-1;x++){
-    if(grid[y][x]===0 && !visited[y][x]){
-      // carve a corridor in straight line to center
-      let cx = Math.floor(COLS/2), cy = Math.floor(ROWS/2);
-      let tx = x, ty = y;
-      while(tx !== cx || ty !== cy){
-        if(tx < cx) tx++;
-        else if(tx > cx) tx--;
-        if(ty < cy) ty++;
-        else if(ty > cy) ty--;
-        if(tx>0 && ty>0 && tx<COLS-1 && ty<ROWS-1) grid[ty][tx] = 0;
-      }
+    const rx=Math.floor(Math.random()*(COLS-2))+1;
+    const ry=Math.floor(Math.random()*(ROWS-2))+1;
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      const nx=rx+dx, ny=ry+dy;
+      if(nx>0&&ny>0&&nx<COLS-1&&ny<ROWS-1)grid[ny][nx]=0;
     }
   }
 }
 
-/* ---------- coordinate helpers ---------- */
-function tileToWorld(tx,ty){
-  // world coords: top-left origin (0,0) at canvas map origin
-  return { x: tx*TILE + TILE/2, y: ty*TILE + TILE/2 };
-}
-function worldToTile(wx,wy){
-  return { tx: Math.floor(wx/TILE), ty: Math.floor(wy/TILE) };
-}
+/* ---------- HELPERS ---------- */
+function tileToWorld(tx,ty){ return {x:tx*TILE+TILE/2, y:ty*TILE+TILE/2}; }
+function worldToTile(wx,wy){ return {tx:Math.floor(wx/TILE), ty:Math.floor(wy/TILE)}; }
 
-/* ---------- collision ---------- */
 function collidesAt(x,y,r){
-  const {tx,ty} = worldToTile(x,y);
-  for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
-    const nx = tx+dx, ny = ty+dy;
-    if(nx<0||ny<0||nx>=COLS||ny>=ROWS) continue;
+  const {tx,ty}=worldToTile(x,y);
+  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+    const nx=tx+dx, ny=ty+dy;
+    if(nx<0||ny<0||nx>=COLS||ny>=ROWS)continue;
     if(grid[ny][nx]===1){
-      const rx = nx*TILE, ry = ny*TILE;
-      const closestX = Math.max(rx, Math.min(x, rx+TILE));
-      const closestY = Math.max(ry, Math.min(y, ry+TILE));
-      const dx0 = x - closestX, dy0 = y - closestY;
-      if(dx0*dx0 + dy0*dy0 < r*r) return true;
+      const rx=nx*TILE, ry=ny*TILE;
+      const cx=Math.max(rx,Math.min(x,rx+TILE));
+      const cy=Math.max(ry,Math.min(y,ry+TILE));
+      const dx0=x-cx, dy0=y-cy;
+      if(dx0*dx0+dy0*dy0<r*r)return true;
     }
   }
   return false;
 }
-
-/* ---------- ray blocked ---------- */
 function rayBlocked(ax,ay,bx,by,step=6){
-  const dx = bx-ax, dy = by-ay;
-  const L = Math.hypot(dx,dy);
-  if(L === 0) return false;
-  const nx = dx / L, ny = dy / L;
-  let t = 0;
-  while(t < L){
-    const px = ax + nx*t, py = ay + ny*t;
-    const { tx, ty } = worldToTile(px,py);
-    if(tx<0||ty<0||tx>=COLS||ty>=ROWS) return true;
-    if(grid[ty][tx]===1) return true;
-    t += step;
+  const dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy);
+  const nx=dx/L, ny=dy/L;
+  for(let t=0;t<L;t+=step){
+    const px=ax+nx*t, py=ay+ny*t;
+    const {tx,ty}=worldToTile(px,py);
+    if(tx<0||ty<0||tx>=COLS||ty>=ROWS)return true;
+    if(grid[ty][tx]===1)return true;
   }
   return false;
 }
 
-/* ---------- Entities ---------- */
-const player = { x:0, y:0, r:14, spd:2.6, dir: -90, fov:120, range:220 };
-const enemy  = { x:0, y:0, r:16, spd:1.2, dir:0, fov:100, range:200, chasing:false };
+/* ---------- ENTITIES ---------- */
+const player={x:0,y:0,r:14,spd:2.6,dir:-90,fov:120,range:220};
+const enemy={x:0,y:0,r:16,spd:1.2,dir:0,fov:100,range:200,chasing:false};
 
-/* ---------- spawn safely ---------- */
-function randomSpawn(entity){
-  let attempts = 0;
-  while(attempts < 800){
-    const tx = Math.floor(Math.random()*(COLS-2))+1;
-    const ty = Math.floor(Math.random()*(ROWS-2))+1;
-    if(grid[ty][tx] === 0){
-      const {x,y} = tileToWorld(tx,ty);
-      if(!collidesAt(x,y,entity.r)){
-        entity.x = x; entity.y = y;
-        return true;
-      }
-    }
-    attempts++;
-  }
-  // fallback: scan for any free
-  for(let ty=1;ty<ROWS-1;ty++) for(let tx=1;tx<COLS-1;tx++){
+function randomSpawn(ent){
+  for(let i=0;i<1000;i++){
+    const tx=Math.floor(Math.random()*(COLS-2))+1;
+    const ty=Math.floor(Math.random()*(ROWS-2))+1;
     if(grid[ty][tx]===0){
       const {x,y}=tileToWorld(tx,ty);
-      if(!collidesAt(x,y,entity.r)){ entity.x=x; entity.y=y; return true; }
+      if(!collidesAt(x,y,ent.r)){ ent.x=x; ent.y=y; return true; }
     }
   }
   return false;
 }
 
-/* ---------- FOV drawing helpers ---------- */
-function drawEnemyFOV(cx,cy,dirDeg,fovDeg,range){
-  const a0 = (dirDeg - fovDeg/2) * Math.PI/180;
-  const a1 = (dirDeg + fovDeg/2) * Math.PI/180;
-  ctx.beginPath();
-  ctx.moveTo(cx,cy);
-  const steps = 32;
-  for(let i=0;i<=steps;i++){
-    const a = a0 + (a1-a0)*(i/steps);
-    // find intersection with walls for occlusion
-    let ex = cx + Math.cos(a)*range;
-    let ey = cy + Math.sin(a)*range;
-    for(let d=0; d<range; d+=6){
-      const px = cx + Math.cos(a)*d, py = cy + Math.sin(a)*d;
-      const {tx,ty} = worldToTile(px,py);
-      if(tx<0||ty<0||tx>=COLS||ty>=ROWS || grid[ty][tx]===1){ ex = px; ey = py; break; }
-    }
-    ctx.lineTo(ex,ey);
-  }
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(255,80,80,0.12)';
-  ctx.fill();
-}
+/* ---------- CONTROL ---------- */
+let move={x:0,y:0}, dragging=false;
+const joy=document.getElementById('joy'), stick=document.getElementById('stick');
+joy.addEventListener('touchstart',()=>dragging=true);
+joy.addEventListener('touchmove',e=>{
+  if(!dragging)return;
+  const t=e.touches[0]; const rect=joy.getBoundingClientRect();
+  const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;
+  const dx=t.clientX-cx, dy=t.clientY-cy;
+  const dist=Math.min(Math.hypot(dx,dy),40);
+  const ang=Math.atan2(dy,dx);
+  stick.style.transform=`translate(${Math.cos(ang)*dist}px,${Math.sin(ang)*dist}px)`;
+  move.x=Math.cos(ang)*(dist/40); move.y=Math.sin(ang)*(dist/40);
+  player.dir=ang*180/Math.PI;
+  e.preventDefault();
+},{passive:false});
+joy.addEventListener('touchend',()=>{dragging=false;stick.style.transform='translate(0,0)';move={x:0,y:0};});
 
-/* ---------- global state ---------- */
-let move = {x:0, y:0};
-let dragging = false;
-let lastStickIndex = {x:0,y:0};
-
-/* ---------- joystick handling (mobile) ---------- */
-const joy = document.getElementById('joy');
-const stick = document.getElementById('stick');
-
-function joyStart(e){
-  dragging = true;
-}
-function joyMove(e){
-  if(!dragging) return;
-  const t = (e.touches && e.touches[0]) || e;
-  const rect = joy.getBoundingClientRect();
-  const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
-  const dx = t.clientX - cx, dy = t.clientY - cy;
-  const dist = Math.min(Math.hypot(dx,dy), 40);
-  const ang = Math.atan2(dy,dx);
-  const tx = Math.cos(ang)*dist, ty = Math.sin(ang)*dist;
-  stick.style.transform = `translate(${tx}px, ${ty}px)`;
-  move.x = Math.cos(ang) * (dist/40);
-  move.y = Math.sin(ang) * (dist/40);
-  // update player facing
-  player.dir = ang * 180/Math.PI;
-  e.preventDefault && e.preventDefault();
-}
-function joyEnd(e){
-  dragging = false;
-  stick.style.transform = 'translate(0,0)';
-  move.x = 0; move.y = 0;
-}
-
-joy.addEventListener('touchstart', joyStart, {passive:false});
-joy.addEventListener('touchmove', joyMove, {passive:false});
-joy.addEventListener('touchend', joyEnd);
-joy.addEventListener('mousedown', (e)=>{ joyStart(e); window.addEventListener('mousemove', joyMove); window.addEventListener('mouseup', ()=>{ window.removeEventListener('mousemove', joyMove); joyEnd(); }); });
-/* prevent page scroll on touch in joystick area */
-joy.addEventListener('touchmove', (e)=>{ e.preventDefault(); }, {passive:false});
-
-/* ---------- game logic ---------- */
-let gameOver = false;
-const msgEl = document.getElementById('msg');
+/* ---------- GAME ---------- */
+let gameOver=false; const msg=document.getElementById('msg');
 
 function resetGame(){
-  gameOver = false;
-  msgEl.classList.remove('show');
-  genRandomMap();
+  gameOver=false; msg.classList.remove('show');
+  genMap();
   randomSpawn(player);
-  // spawn enemy, ensure not too close to player
-  let tries = 0;
-  do {
-    randomSpawn(enemy);
-    tries++;
-  } while(Math.hypot(player.x-enemy.x, player.y-enemy.y) < TILE*3 && tries < 50);
-  enemy.chasing = false;
-  enemy.spd = 1.2;
-  enemy.dir = 0;
+  do{ randomSpawn(enemy); }while(Math.hypot(player.x-enemy.x,player.y-enemy.y)<TILE*3);
+  enemy.chasing=false; enemy.spd=1.2;
 }
 
-/* enemy simple patrol when not chasing */
-function enemyWander(elapsedFrames){
-  // simple wandering: slowly rotate and move, but avoid walls
-  if(!enemy.chasing){
-    enemy.dir += 0.3 * (elapsedFrames%2===0 ? 1 : -1);
-    const rad = enemy.dir * Math.PI/180;
-    const nx = enemy.x + Math.cos(rad) * enemy.spd * 0.6;
-    const ny = enemy.y + Math.sin(rad) * enemy.spd * 0.6;
-    if(!collidesAt(nx,ny,enemy.r)){ enemy.x = nx; enemy.y = ny; }
-    else enemy.dir += 90; // bounce
-  }
-}
-
-/* ---------- update / draw ---------- */
-let frame = 0;
-function update(){
-  if(gameOver) return;
-  // player movement
-  const nx = player.x + move.x * player.spd;
-  const ny = player.y + move.y * player.spd;
-  if(!collidesAt(nx, player.y, player.r)) player.x = nx;
-  if(!collidesAt(player.x, ny, player.r)) player.y = ny;
-
-  // enemy behaviour
-  const dx = player.x - enemy.x, dy = player.y - enemy.y;
-  const dist = Math.hypot(dx,dy);
-  const angleToPlayer = Math.atan2(dy,dx) * 180/Math.PI;
-  // is player in enemy FOV and not blocked?
-  const angDiff = Math.abs(((angleToPlayer - enemy.dir + 540) % 360) - 180);
-  const sees = (dist <= enemy.range) && (angDiff <= enemy.fov/2) && (!rayBlocked(enemy.x,enemy.y,player.x,player.y,6));
+/* ---------- ENEMY LOGIC ---------- */
+function enemyAI(){
+  const dx=player.x-enemy.x, dy=player.y-enemy.y, dist=Math.hypot(dx,dy);
+  const angleToPlayer=Math.atan2(dy,dx)*180/Math.PI;
+  const angDiff=Math.abs(((angleToPlayer-enemy.dir+540)%360)-180);
+  const sees=(dist<=enemy.range)&&(angDiff<=enemy.fov/2)&&(!rayBlocked(enemy.x,enemy.y,player.x,player.y,6));
   if(sees){
-    enemy.chasing = true;
-    enemy.spd = 5.0; // burst speed when detects
-    // set direction directly to player
-    enemy.dir = angleToPlayer;
-    // move towards player with collision check
-    const rad = enemy.dir * Math.PI/180;
-    const ex = enemy.x + Math.cos(rad) * enemy.spd;
-    const ey = enemy.y + Math.sin(rad) * enemy.spd;
-    if(!collidesAt(ex,ey,enemy.r)){ enemy.x = ex; enemy.y = ey; }
-  } else {
-    // search / wander
-    if(enemy.chasing){
-      // if lost sight, slow down and wander for a moment
-      enemy.chasing = false;
-      enemy.spd = 1.2;
-    }
-    enemyWander(frame);
+    enemy.chasing=true; enemy.spd=5; enemy.dir=angleToPlayer;
+    const rad=enemy.dir*Math.PI/180;
+    const ex=enemy.x+Math.cos(rad)*enemy.spd;
+    const ey=enemy.y+Math.sin(rad)*enemy.spd;
+    if(!collidesAt(ex,ey,enemy.r)){enemy.x=ex;enemy.y=ey;}
+  }else{
+    enemy.chasing=false; enemy.spd=1.2;
+    enemy.dir+=0.3;
+    const rad=enemy.dir*Math.PI/180;
+    const nx=enemy.x+Math.cos(rad)*enemy.spd*0.6;
+    const ny=enemy.y+Math.sin(rad)*enemy.spd*0.6;
+    if(!collidesAt(nx,ny,enemy.r)){enemy.x=nx;enemy.y=ny;} else enemy.dir+=90;
   }
-
-  // check catch
-  if(Math.hypot(player.x-enemy.x, player.y-enemy.y) < player.r + enemy.r){
-    gameOver = true;
-    msgEl.classList.add('show');
-  }
+  if(dist<player.r+enemy.r){ gameOver=true; msg.classList.add('show'); }
 }
 
-/* draw world relative to camera (centered on player) */
-function draw(){
-  ctx.clearRect(0,0,W,H);
-  // camera offset so player is centered
-  const camX = W/2 - player.x;
-  const camY = H/2 - player.y;
-  ctx.save();
-  ctx.translate(camX, camY);
-
-  // floor
-  ctx.fillStyle = '#0f1724';
-  ctx.fillRect(0,0,MAP_W,MAP_H);
-
-  // draw tiles (walls)
-  for(let y=0;y<ROWS;y++){
-    for(let x=0;x<COLS;x++){
-      if(grid[y][x] === 1){
-        const rx = x*TILE, ry = y*TILE;
-        ctx.fillStyle = '#334155';
-        ctx.fillRect(rx, ry, TILE, TILE);
-      }
+/* ---------- DRAW ---------- */
+function drawFOV(x,y,dirDeg,fovDeg,range,alpha=1){
+  const sx=W/2+(x-player.x), sy=H/2+(y-player.y);
+  const a0=(dirDeg-fovDeg/2)*Math.PI/180, a1=(dirDeg+fovDeg/2)*Math.PI/180;
+  ctx.beginPath(); ctx.moveTo(sx,sy);
+  const steps=60;
+  for(let i=0;i<=steps;i++){
+    const a=a0+(a1-a0)*(i/steps);
+    let ex=x+Math.cos(a)*range, ey=y+Math.sin(a)*range;
+    for(let d=0;d<range;d+=6){
+      const wx=x+Math.cos(a)*d, wy=y+Math.sin(a)*d;
+      const {tx,ty}=worldToTile(wx,wy);
+      if(tx<0||ty<0||tx>=COLS||ty>=ROWS||grid[ty][tx]===1){ ex=wx; ey=wy; break; }
     }
-  }
-
-  // draw enemy FOV (semi)
-  drawEnemyFOV(enemy.x, enemy.y, enemy.dir, enemy.fov, enemy.range);
-
-  // draw enemy
-  ctx.fillStyle = enemy.chasing ? '#ff7b7b' : '#ef4444';
-  ctx.beginPath(); ctx.arc(enemy.x, enemy.y, enemy.r, 0, Math.PI*2); ctx.fill();
-
-  // draw player
-  ctx.fillStyle = '#34d399';
-  ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI*2); ctx.fill();
-
-  ctx.restore();
-
-// ---- 어둠 오버레이 + 시야각 처리 ----
-ctx.fillStyle = 'rgba(0,0,0,0.88)';
-ctx.fillRect(0,0,W,H);
-
-ctx.save();
-ctx.globalCompositeOperation = 'destination-out';
-
-// 공용 시야 함수
-function drawVision(x, y, dirDeg, fovDeg, range, alpha=1) {
-  const sx = W/2 + (x - player.x);
-  const sy = H/2 + (y - player.y);
-  const a0 = (dirDeg - fovDeg/2) * Math.PI/180;
-  const a1 = (dirDeg + fovDeg/2) * Math.PI/180;
-
-  ctx.beginPath();
-  ctx.moveTo(sx, sy);
-  const steps = 60;
-  for (let i=0; i<=steps; i++) {
-    const a = a0 + (a1 - a0)*(i/steps);
-    let ex = x + Math.cos(a)*range;
-    let ey = y + Math.sin(a)*range;
-    // 벽이 있으면 시야 차단
-    for(let d=0; d<range; d+=6){
-      const wx = x + Math.cos(a)*d;
-      const wy = y + Math.sin(a)*d;
-      const {tx,ty} = worldToTile(wx,wy);
-      if(tx<0||ty<0||tx>=COLS||ty>=ROWS || grid[ty][tx]===1){
-        ex = wx; ey = wy; break;
-      }
-    }
-    const screenX = W/2 + (ex - player.x);
-    const screenY = H/2 + (ey - player.y);
-    ctx.lineTo(screenX, screenY);
+    const screenX=W/2+(ex-player.x), screenY=H/2+(ey-player.y);
+    ctx.lineTo(screenX,screenY);
   }
   ctx.closePath();
-
-  const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, range);
-  grad.addColorStop(0, `rgba(255,255,255,${alpha})`);
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = grad;
-  ctx.fill();
+  const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,range);
+  grad.addColorStop(0,`rgba(255,255,255,${alpha})`);
+  grad.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=grad; ctx.fill();
 }
 
-// 플레이어 시야 (앞쪽 120°만 밝게)
-drawVision(player.x, player.y, player.dir, 120, player.range, 1);
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  const camX=W/2-player.x, camY=H/2-player.y;
+  ctx.save(); ctx.translate(camX,camY);
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    if(grid[y][x]===1){ ctx.fillStyle=varWall='#334155'; ctx.fillRect(x*TILE,y*TILE,TILE,TILE); }
+  }
+  ctx.fillStyle=enemy.chasing?'#ff7b7b':'#ef4444';
+  ctx.beginPath(); ctx.arc(enemy.x,enemy.y,enemy.r,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#34d399';
+  ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
+  ctx.restore();
 
-// 적 시야도 살짝 보이게
-drawVision(enemy.x, enemy.y, enemy.dir, 120, enemy.range*0.8, 0.25);
-
-ctx.restore();
-
-  // draw small player-facing indicator (optional)
+  // ---- 어둠 오버레이 + 시야 ----
+  ctx.fillStyle='rgba(0,0,0,0.88)';
+  ctx.fillRect(0,0,W,H);
   ctx.save();
-  ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  ctx.beginPath();
-  ctx.arc(W-64, 48, 32, 0, Math.PI*2);
-  ctx.fill();
+  ctx.globalCompositeOperation='destination-out';
+  drawFOV(player.x,player.y,player.dir,120,player.range,1);
+  drawFOV(enemy.x,enemy.y,enemy.dir,120,enemy.range*0.8,0.25);
   ctx.restore();
 }
 
-/* main loop */
-function tick(){
-  frame++;
-  update();
-  draw();
-  requestAnimationFrame(tick);
+/* ---------- UPDATE LOOP ---------- */
+function update(){
+  if(gameOver)return;
+  const nx=player.x+move.x*player.spd, ny=player.y+move.y*player.spd;
+  if(!collidesAt(nx,player.y,player.r))player.x=nx;
+  if(!collidesAt(player.x,ny,player.r))player.y=ny;
+  enemyAI();
 }
 
-/* restart on tap when game over */
-window.addEventListener('touchstart', (e)=>{
-  if(gameOver){
-    resetGame();
-  }
-}, {passive:true});
-window.addEventListener('mousedown', (e)=>{
-  if(gameOver){
-    resetGame();
-  }
-});
+function loop(){
+  update(); draw(); requestAnimationFrame(loop);
+}
 
-/* resize handling */
-window.addEventListener('resize', ()=>{
-  W = window.innerWidth; H = window.innerHeight;
-  canvas.width = W; canvas.height = H;
-});
-
-/* initial run */
-resetGame();
-tick();
-
-/* debugging exposure (optional) */
-window._stealth = { player, enemy, grid, resetGame };
-
+/* ---------- INIT ---------- */
+window.addEventListener('resize',()=>{W=window.innerWidth;H=window.innerHeight;canvas.width=W;canvas.height=H;});
+window.addEventListener('touchstart',()=>{if(gameOver)resetGame();});
+window.addEventListener('mousedown',()=>{if(gameOver)resetGame();});
+resetGame(); loop();
 </script>
 </body>
 </html>
