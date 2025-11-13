@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>novels</title>
+<style>
+:root {
+  --bg: #0d0d0f;
+  --card: #1a1a22;
+  --text: #f1f1f1;
+  --accent: #6f9bff;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Pretendard", sans-serif;
+  transition: background 0.3s;
+}
+header {
+  background: var(--card);
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+header h1 { font-size: 1.2rem; margin: 0; }
+#searchInput {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.5rem 0.8rem;
+  width: 50%;
+}
+main {
+  padding: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+  gap: 1rem;
+}
+.novel-card {
+  background: var(--card);
+  padding: 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+.novel-card:hover { background: #232332; }
+.novel-card h3 { margin: 0 0 0.4rem 0; }
+.tags { font-size: 0.85rem; color: #aaa; }
+
+#reader {
+  display: none;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 1.5rem;
+  max-width: 800px;
+  margin: auto;
+  line-height: 1.8;
+}
+#reader p { margin: 1rem 0; }
+#backBtn {
+  background: var(--card);
+  border: none;
+  color: var(--accent);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 1rem;
+}
+footer {
+  text-align: center;
+  padding: 1rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+@media (max-width:600px){
+  #searchInput { width: 100%; }
+  main { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>novels</h1>
+  <input id="searchInput" placeholder="제목, 태그 검색..." />
+</header>
+
+<main id="list"></main>
+
+<section id="reader">
+  <button id="backBtn">← 목록으로</button>
+  <h2 id="novelTitle"></h2>
+  <div id="novelContent"></div>
+</section>
+
+<script>
+// ----- 샘플 소설 데이터 -----
+const novels = [
+  {
+    id: '001',
+    title: '달빛 속의 고양이',
+    genre: '판타지',
+    tags: ['고양이','밤','꿈'],
+    content: `달빛이 골목길을 비추고 있었다.
+나는 그 빛 아래에서, 고양이를 보았다.
+그 눈은 분명히 나를 알고 있었다.`
+  },
+  {
+    id: '002',
+    title: '기억의 조각들',
+    genre: '드라마',
+    tags: ['기억','사랑','시간'],
+    content: `나는 오래된 사진 한 장을 꺼냈다.
+그 안에서 웃고 있는 너는, 여전히 그대로였다.
+단지 나는 변했을 뿐이다.`
+  },
+  {
+    id: '003',
+    title: '폐허의 노래',
+    genre: 'SF',
+    tags: ['로봇','폐허','미래'],
+    content: `엔진 소리가 멈추자 세상도 고요해졌다.
+녹슨 철길 위에서, 나는 마지막 노래를 불렀다.`
+  }
+];
+
+// ----- DOM 요소 -----
+const list = document.getElementById('list');
+const search = document.getElementById('searchInput');
+const reader = document.getElementById('reader');
+const titleEl = document.getElementById('novelTitle');
+const contentEl = document.getElementById('novelContent');
+const backBtn = document.getElementById('backBtn');
+
+// ----- 목록 렌더링 -----
+function renderList() {
+  const q = search.value.toLowerCase();
+  list.innerHTML = '';
+  novels
+    .filter(n =>
+      n.title.toLowerCase().includes(q) ||
+      n.genre.toLowerCase().includes(q) ||
+      n.tags.some(t=>t.toLowerCase().includes(q))
+    )
+    .forEach(n=>{
+      const div = document.createElement('div');
+      div.className = 'novel-card';
+      div.innerHTML = `
+        <h3>${n.title}</h3>
+        <div class="tags">${n.genre} · ${n.tags.join(', ')}</div>
+      `;
+      div.onclick = ()=>openNovel(n);
+      list.appendChild(div);
+    });
+}
+
+// ----- 소설 열기 -----
+function openNovel(novel){
+  document.querySelector('main').style.display='none';
+  reader.style.display='flex';
+  titleEl.textContent = novel.title;
+  contentEl.innerHTML = novel.content.split('\n')
+    .map(p=>`<p>${p}</p>`).join('');
+  window.scrollTo(0,0);
+}
+
+// ----- 뒤로 -----
+backBtn.onclick = ()=>{
+  reader.style.display='none';
+  document.querySelector('main').style.display='grid';
+  window.scrollTo(0,0);
+}
+
+// ----- 검색 이벤트 -----
+search.addEventListener('input', renderList);
+
+// ----- 초기 로드 -----
+renderList();
+</script>
+</body>
+</html>
