@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Water Wave + Boat</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #06070c;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="water"></canvas>
+
+<script>
+const canvas = document.getElementById("water");
+const ctx = canvas.getContext("2d");
+
+let w = canvas.width = window.innerWidth;
+let h = canvas.height = window.innerHeight;
+
+window.addEventListener("resize", () => {
+  w = canvas.width = window.innerWidth;
+  h = canvas.height = window.innerHeight;
+  init();
+});
+
+// ------------------------------
+// 물결 시뮬레이션
+// ------------------------------
+
+let points = [];
+let pointCount = 200;
+let spring = 0.02;
+let friction = 0.92;
+let spread = 0.28;
+let baseY = 0;
+
+function init() {
+  baseY = h * 0.5;
+  points = [];
+
+  for (let i = 0; i < pointCount; i++) {
+    points.push({
+      x: (i / (pointCount - 1)) * w,
+      y: baseY,
+      vy: 0,
+      targetY: baseY
+    });
+  }
+}
+
+function updateWater() {
+  for (let p of points) {
+    let dy = p.targetY - p.y;
+    p.vy += dy * spring;
+    p.vy *= friction;
+    p.y += p.vy;
+  }
+
+  let left = new Array(pointCount);
+  let right = new Array(pointCount);
+
+  for (let i = 0; i < pointCount; i++) {
+    if (i > 0) {
+      let diff = points[i].y - points[i - 1].y;
+      left[i] = diff * spread;
+      points[i - 1].vy += left[i];
+    }
+    if (i < pointCount - 1) {
+      let diff2 = points[i].y - points[i + 1].y;
+      right[i] = diff2 * spread;
+      points[i + 1].vy += right[i];
+    }
+  }
+}
+
+function drawWater() {
+  ctx.clearRect(0, 0, w, h);
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let p of points) {
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.lineTo(w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+
+  ctx.fillStyle = "rgba(0, 150, 255, 0.45)";
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0, 200, 255, 0.7)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+// ------------------------------
+// 배 (Boat)
+// ------------------------------
+
+let boat = {
+  x: w * 0.5,
+  y: 0,
+  w: 120,
+  h: 40,
+  tilt: 0
+};
+
+function drawBoat() {
+  // 배 아래 물 높이 계산
+  let idx = Math.floor((boat.x / w) * (pointCount - 1));
+  let waterY = points[idx].y;
+
+  // 배 y값을 부드럽게 따라가게
+  boat.y += (waterY - boat.y) * 0.1;
+
+  // 좌우 물결 차이로 기울기
+  let left = points[Math.max(0, idx - 2)].y;
+  let right = points[Math.min(pointCount - 1, idx + 2)].y;
+  boat.tilt = (right - left) * 0.03;
+
+  ctx.save();
+  ctx.translate(boat.x, boat.y - 20);
+  ctx.rotate(boat.tilt);
+
+  // 배 몸체
+  ctx.fillStyle = "#d35f3f";
+  ctx.beginPath();
+  ctx.moveTo(-boat.w/2, 0);
+  ctx.lineTo(boat.w/2, 0);
+  ctx.lineTo(boat.w/2 - 20, boat.h);
+  ctx.lineTo(-boat.w/2 + 20, boat.h);
+  ctx.closePath();
+  ctx.fill();
+
+  // 돛대
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, -60);
+  ctx.stroke();
+
+  // 돛
+  ctx.fillStyle = "white";
+  ctx.beginPath();
+  ctx.moveTo(0, -60);
+  ctx.lineTo(40, -20);
+  ctx.lineTo(0, -20);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ------------------------------
+// 터치 → 파동 유지 생성
+// ------------------------------
+
+let isTouching = false;
+let touchX = 0;
+
+function splash(x, power = -80) {
+  let index = Math.floor((x / w) * pointCount);
+  if (points[index]) {
+    points[index].vy = power;
+  }
+}
+
+// Mouse
+canvas.addEventListener("mousedown", e => {
+  isTouching = true;
+  touchX = e.clientX;
+});
+canvas.addEventListener("mousemove", e => {
+  if (isTouching) {
+    touchX = e.clientX;
+    splash(touchX, -90);
+  }
+});
+canvas.addEventListener("mouseup", () => isTouching = false);
+
+// Touch
+canvas.addEventListener("touchstart", e => {
+  const t = e.touches[0];
+  isTouching = true;
+  touchX = t.clientX;
+});
+canvas.addEventListener("touchmove", e => {
+  const t = e.touches[0];
+  touchX = t.clientX;
+  splash(touchX, -90);
+});
+canvas.addEventListener("touchend", () => isTouching = false);
+
+// ------------------------------
+// 메인 루프
+// ------------------------------
+
+function loop() {
+  updateWater();
+
+  if (isTouching) splash(touchX, -80);
+
+  drawWater();
+  drawBoat();
+
+  requestAnimationFrame(loop);
+}
+
+init();
+loop();
+
+</script>
+</body>
+</html>
