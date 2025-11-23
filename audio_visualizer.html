@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>미니 오디오 비주얼라이저</title>
+<style>
+  :root{
+    --bg:#0b0f1a; --panel:#0f1724; --accent:#4ade80;
+  }
+  html,body{height:100%; margin:0; font-family:Inter,Segoe UI,Roboto,'Noto Sans KR',sans-serif; background:var(--bg); color:#dbeafe;}
+  .wrap{display:flex; flex-direction:column; gap:12px; padding:16px; max-width:1100px; margin:18px auto;}
+  header{display:flex; align-items:center; gap:12px;}
+  header h1{font-size:18px; margin:0;}
+  .controls{display:flex; gap:8px; flex-wrap:wrap; background:var(--panel); padding:10px; border-radius:12px;}
+  .controls > *{display:flex; align-items:center; gap:6px;}
+  label{font-size:13px; color:#9aa9c7;}
+  input[type="file"]{display:none;}
+  .btn{background:#0ea5a5;border:none;padding:8px 10px;border-radius:8px;color:#021;cursor:pointer;font-weight:600;}
+  .btn:active{transform:translateY(1px);}
+  .canvas-wrap{background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent); border-radius:12px; padding:8px;}
+  canvas{width:100%; height:360px; display:block; border-radius:8px; background:linear-gradient(180deg,#02030b 0%, rgba(2,3,11,0.6) 100%);}
+  .sliders{display:flex; gap:8px; flex-wrap:wrap;}
+  .slider{display:flex; flex-direction:column; gap:6px; min-width:150px;}
+  select,input[type="range"]{width:160px;}
+  .small{font-size:12px;color:#9aa9c7;}
+  footer{font-size:12px;color:#9aa9c7;}
+  @media(max-width:640px){canvas{height:260px} .controls{padding:8px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎧 미니 오디오 비주얼라이저</h1>
+    <div class="small">파일 재생 · 마이크 입력 · 바/파형 모드 · 색상/파라미터 조절</div>
+  </header>
+
+  <div class="controls" role="toolbar">
+    <div>
+      <label for="fileInput" class="btn">파일 선택</label>
+      <input id="fileInput" type="file" accept="audio/*"/>
+    </div>
+
+    <div>
+      <button id="micBtn" class="btn">마이크 켜기</button>
+    </div>
+
+    <div>
+      <button id="playPause" class="btn" disabled>재생</button>
+    </div>
+
+    <div class="slider">
+      <label class="small">모드</label>
+      <select id="modeSelect">
+        <option value="bars">주파수 바 (Bars)</option>
+        <option value="wave">파형 (Waveform)</option>
+        <option value="both">둘 다</option>
+      </select>
+    </div>
+
+    <div class="slider">
+      <label class="small">FFT Size</label>
+      <select id="fftSize">
+        <option>32</option><option>64</option><option>128</option><option selected>256</option><option>512</option><option>1024</option><option>2048</option>
+      </select>
+    </div>
+
+    <div class="slider">
+      <label class="small">스무딩 (0~1)</label>
+      <input id="smoothing" type="range" min="0" max="1" step="0.01" value="0.6"/>
+    </div>
+
+    <div class="slider">
+      <label class="small">컬러</label>
+      <input id="color" type="color" value="#6ee7b7"/>
+    </div>
+
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="viz"></canvas>
+  </div>
+
+  <div class="sliders">
+    <div class="slider">
+      <label class="small">볼륨 게인</label>
+      <input id="gain" type="range" min="0" max="4" step="0.01" value="1"/>
+    </div>
+
+    <div class="slider">
+      <label class="small">바 개수 (bars 모드)</label>
+      <input id="barCount" type="range" min="8" max="256" step="1" value="64"/>
+    </div>
+
+    <div class="slider">
+      <label class="small">배경 흐릿도</label>
+      <input id="bgAlpha" type="range" min="0" max="1" step="0.01" value="0.12"/>
+    </div>
+  </div>
+
+  <footer>사용법: 파일 선택 또는 마이크 켜기 → 재생. 크롬/엣지 권장. 모바일에서도 동작함.</footer>
+</div>
+
+<script>
+(async()=> {
+  // 요소
+  const fileInput = document.getElementById('fileInput');
+  const micBtn = document.getElementById('micBtn');
+  const playPause = document.getElementById('playPause');
+  const modeSelect = document.getElementById('modeSelect');
+  const fftSizeSelect = document.getElementById('fftSize');
+  const smoothingSlider = document.getElementById('smoothing');
+  const colorPicker = document.getElementById('color');
+  const gainSlider = document.getElementById('gain');
+  const barCountSlider = document.getElementById('barCount');
+  const bgAlphaSlider = document.getElementById('bgAlpha');
+
+  const canvas = document.getElementById('viz');
+  const ctx = canvas.getContext('2d');
+
+  // 오디오 준비
+  let audioCtx = null;
+  let sourceNode = null;
+  let analyser = null;
+  let gainNode = null;
+  let mediaStream = null;
+  let audioElement = null;
+
+  function ensureAudioContext(){
+    if(!audioCtx){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      gainNode = audioCtx.createGain();
+      analyser.smoothingTimeConstant = parseFloat(smoothingSlider.value);
+      analyser.fftSize = parseInt(fftSizeSelect.value);
+      gainNode.gain.value = parseFloat(gainSlider.value);
+      analyser.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+    }
+  }
+
+  // 캔버스 리사이즈
+  function resize(){
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.clientWidth * dpr;
+    canvas.height = canvas.clientHeight * dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // 파일 재생 처리
+  fileInput.addEventListener('change', async (e)=>{
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    stopMic(); // 마이크 중이면 끊기
+    if(audioElement){
+      audioElement.pause();
+      audioElement = null;
+    }
+    const url = URL.createObjectURL(file);
+    audioElement = new Audio(url);
+    audioElement.crossOrigin = "anonymous";
+    audioElement.controls = false;
+    audioElement.loop = false;
+    await setupSourceFromElement(audioElement);
+    try { await audioCtx.resume(); } catch(e) {}
+    playPause.disabled = false;
+    playPause.textContent = '재생';
+  });
+
+  // 오디오 엘리먼트로부터 source 설정
+  async function setupSourceFromElement(el){
+    ensureAudioContext();
+    if(sourceNode) sourceNode.disconnect();
+    sourceNode = audioCtx.createMediaElementSource(el);
+    sourceNode.connect(analyser);
+    el.onended = ()=> playPause.textContent = '재생';
+    // 자동 재생 정책: resume 필요
+    try{ await audioCtx.resume(); }catch(e){}
+  }
+
+  // 마이크
+  micBtn.addEventListener('click', async ()=>{
+    if(mediaStream) { stopMic(); return; }
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+      mediaStream = stream;
+      ensureAudioContext();
+      if(sourceNode) sourceNode.disconnect();
+      const ms = audioCtx.createMediaStreamSource(stream);
+      ms.connect(analyser);
+      micBtn.textContent = '마이크 끄기';
+      playPause.disabled = true;
+      // resume context if suspended
+      try{ await audioCtx.resume(); }catch(e){}
+    }catch(err){
+      alert('마이크 권한 필요하거나 사용 불가합니다.');
+      console.error(err);
+    }
+  });
+
+  function stopMic(){
+    if(mediaStream){
+      mediaStream.getTracks().forEach(t=>t.stop());
+      mediaStream = null;
+      micBtn.textContent = '마이크 켜기';
+      if(sourceNode) sourceNode.connect(analyser);
+    }
+  }
+
+  // 재생/일시정지 (파일 재생 전용)
+  playPause.addEventListener('click', async ()=>{
+    if(!audioElement) return;
+    if(audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
+    if(audioElement.paused){
+      audioElement.play();
+      playPause.textContent = '일시정지';
+    } else {
+      audioElement.pause();
+      playPause.textContent = '재생';
+    }
+  });
+
+  // 파라미터 변경 처리
+  fftSizeSelect.addEventListener('change', ()=>{ if(analyser) analyser.fftSize = parseInt(fftSizeSelect.value); });
+  smoothingSlider.addEventListener('input', ()=>{ if(analyser) analyser.smoothingTimeConstant = parseFloat(smoothingSlider.value); });
+  gainSlider.addEventListener('input', ()=>{ if(gainNode) gainNode.gain.value = parseFloat(gainSlider.value); });
+  barCountSlider.addEventListener('input', ()=>{ /* redraw will pick up */ });
+  colorPicker.addEventListener('input', ()=>{ /* redraw will pick up */ });
+  bgAlphaSlider.addEventListener('input', ()=>{ /* redraw will pick up */ });
+
+  // 드래그 앤 드롭으로 파일 열기
+  window.addEventListener('dragover', e=>{ e.preventDefault(); }, false);
+  window.addEventListener('drop', e=>{
+    e.preventDefault();
+    if(e.dataTransfer.files && e.dataTransfer.files[0]) {
+      fileInput.files = e.dataTransfer.files;
+      const ev = new Event('change');
+      fileInput.dispatchEvent(ev);
+    }
+  });
+
+  // 그리기 루프
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  let rafId = null;
+  function draw(){
+    if(!analyser){ rafId = requestAnimationFrame(draw); return; }
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    ctx.clearRect(0,0,w,h);
+
+    // 배경 잔상 (alpha 조절)
+    ctx.fillStyle = `rgba(2,6,23,${parseFloat(bgAlphaSlider.value)})`;
+    ctx.fillRect(0,0,w,h);
+
+    const mode = modeSelect.value;
+    const color = colorPicker.value;
+    const barCount = parseInt(barCountSlider.value);
+
+    if(mode === 'bars' || mode === 'both'){
+      const freqLen = analyser.frequencyBinCount;
+      const data = new Uint8Array(freqLen);
+      analyser.getByteFrequencyData(data);
+
+      const barWidth = w / barCount;
+      for(let i=0;i<barCount;i++){
+        const idx = Math.floor(i * freqLen / barCount);
+        const v = data[idx] / 255; // 0..1
+        const barH = v * h * 0.9;
+        const x = i * barWidth;
+        // 그라데이션 색깔
+        const grad = ctx.createLinearGradient(x, h, x+barWidth, h-barH);
+        grad.addColorStop(0, 'rgba(0,0,0,0)');
+        grad.addColorStop(0.3, `${color}77`);
+        grad.addColorStop(1, color);
+        ctx.fillStyle = grad;
+        ctx.fillRect(x + 1, h - barH, barWidth - 2, barH);
+      }
+    }
+
+    if(mode === 'wave' || mode === 'both'){
+      const timeLen = analyser.fftSize;
+      const data = new Uint8Array(timeLen);
+      analyser.getByteTimeDomainData(data);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      const slice = canvas.clientWidth / data.length;
+      const mid = h/2;
+      for(let i=0;i<data.length;i++){
+        const v = data[i] / 128.0; // around 1
+        const y = (v * mid);
+        const x = i * slice;
+        if(i===0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = color;
+      ctx.stroke();
+
+      // 반투명 파형 아래 그라데이션
+      ctx.beginPath();
+      for(let i=0;i<data.length;i++){
+        const v = data[i] / 128.0;
+        const y = (v * mid);
+        const x = i * slice;
+        if(i===0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.lineTo(w, h);
+      ctx.lineTo(0, h);
+      ctx.closePath();
+      ctx.fillStyle = color + '22';
+      ctx.fill();
+    }
+
+    rafId = requestAnimationFrame(draw);
+  }
+  rafId = requestAnimationFrame(draw);
+
+  // 유저 상호작용으로 audioContext resume 필요할 수 있음
+  ['click','touchstart'].forEach(evt=>{
+    window.addEventListener(evt, async ()=>{
+      if(audioCtx && audioCtx.state === 'suspended') try{ await audioCtx.resume(); }catch(e){}
+    }, {once:true});
+  });
+
+  // 마운트 이후: 초기화 준비
+  // create an invisible audio element template for convenience (not appended)
+  audioElement = null;
+
+  // fast resume when file chosen: enable play button
+  // NOTE: mobile 브라우저들은 user gesture 필요 -> 재생 버튼 눌러야 소리 남
+
+  // cleanup on unload
+  window.addEventListener('beforeunload', ()=> {
+    if(mediaStream) mediaStream.getTracks().forEach(t=>t.stop());
+    if(audioCtx) audioCtx.close && audioCtx.close();
+    cancelAnimationFrame(rafId);
+  });
+
+})();
+</script>
+</body>
+</html>
