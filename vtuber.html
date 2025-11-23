@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>VTuber - Eye Blink + LipSync + Head Rotation</title>
+<style>
+    body {
+        margin: 0;
+        background: #111;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overflow: hidden;
+        color: white;
+        font-family: sans-serif;
+    }
+
+    #vtuber {
+        width: 420px;
+        transform-style: preserve-3d;
+        animation: idle 3s ease-in-out infinite;
+        position: relative;
+    }
+
+    #vtuber img {
+        width: 100%;
+        will-change: transform, opacity;
+        transform-origin: center center;
+        transition: transform 0.05s linear;
+    }
+
+    @keyframes idle {
+        0%   { transform: translateY(0); }
+        50%  { transform: translateY(10px); }
+        100% { transform: translateY(0); }
+    }
+
+    video { display: none; }
+
+    .eyeL, .eyeR, .mouth {
+        position: absolute;
+        left: 0; top: 0;
+        width: 100%;
+        pointer-events: none;
+    }
+
+</style>
+
+<!-- Google Face-Landmarker -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.5/vision_bundle.js"></script>
+
+</head>
+<body>
+
+<div id="vtuber">
+    <img id="avatar" src="https://i.postimg.cc/4N1FGDnL/20250316-082410-IMG-0039.png">
+
+    <!-- 눈/입 오버레이 (투명 이미지) -->
+    <img id="blink" class="eyeL" style="opacity:0;">
+    <img id="mouth" class="mouth" style="opacity:0;">
+</div>
+
+<video id="cam" autoplay playsinline></video>
+
+<script>
+let faceLandmarker;
+let video = document.getElementById("cam");
+let avatar = document.getElementById("avatar");
+let blinkImg = document.getElementById("blink");
+let mouthImg = document.getElementById("mouth");
+
+// 깜빡임/입모양 기본 이미지(필요하면 나중에 제공 가능)
+blinkImg.src = "https://i.postimg.cc/6q39Lqff/blink.png";
+mouthImg.src = "https://i.postimg.cc/3Nf4NfGc/mouth.png";
+
+let smoothYaw = 0, smoothPitch = 0, smoothRoll = 0;
+let eyeL = 1.0, eyeR = 1.0;
+let mouthOpen = 0;
+
+async function init() {
+    const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.5/wasm"
+    );
+
+    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+        baseOptions: {
+            modelAssetPath:
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.5/face_landmarker.task",
+            delegate: "GPU"
+        },
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: true,
+        runningMode: "VIDEO",
+        numFaces: 1
+    });
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480 }
+    });
+    video.srcObject = stream;
+    video.onloadedmetadata = () => video.play();
+
+    requestAnimationFrame(track);
+}
+
+function getEAR(landmarks, a, b, c, d) {
+    const v1 = landmarks[a];
+    const v2 = landmarks[b];
+    const v3 = landmarks[c];
+    const v4 = landmarks[d];
+    const distV = Math.hypot(v2.x - v4.x, v2.y - v4.y);
+    const distH = Math.hypot(v1.x - v3.x, v1.y - v3.y);
+    return distV / distH;
+}
+
+function track() {
+    if (video.readyState >= 2) {
+        const results = faceLandmarker.detectForVideo(video, performance.now());
+
+        if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+            const LM = results.faceLandmarks[0];
+
+            // --- 눈 깜빡임 (EAR 방식)
+            const leftEAR = getEAR(LM, 33, 159, 133, 145);
+            const rightEAR = getEAR(LM, 362, 386, 263, 374);
+
+            eyeL = eyeL * 0.7 + leftEAR * 0.3;
+            eyeR = eyeR * 0.7 + rightEAR * 0.3;
+
+            const blinkVal = (eyeL + eyeR) / 2;
+            blinkImg.style.opacity = blinkVal < 0.22 ? "1" : "0";
+
+            // --- 입 말하기(LipSync)
+            const mouthTop = LM[13];
+            const mouthBottom = LM[14];
+            const dist = Math.hypot(
+                mouthTop.x - mouthBottom.x,
+                mouthTop.y - mouthBottom.y
+            );
+
+            mouthOpen = mouthOpen * 0.7 + dist * 3.5 * 0.3;
+            mouthImg.style.opacity = Math.min(mouthOpen, 1);
+
+            // --- 머리 회전 (Matrix → Euler)
+            if (results.facialTransformationMatrixes.length > 0) {
+                const m = results.facialTransformationMatrixes[0].data;
+
+                const yaw = Math.atan2(m[2], m[10]) * 180 / Math.PI;
+                const pitch = Math.atan2(-m[6], Math.sqrt(m[2]*m[2] + m[10]*m[10])) * 180 / Math.PI;
+                const roll = Math.atan2(m[4], m[5]) * 180 / Math.PI;
+
+                smoothYaw = smoothYaw * 0.8 + yaw * 0.2;
+                smoothPitch = smoothPitch * 0.8 + pitch * 0.2;
+                smoothRoll = smoothRoll * 0.8 + roll * 0.2;
+
+                avatar.style.transform =
+                    `rotateY(${smoothYaw * 1.5}deg)
+                     rotateX(${smoothPitch * -1.4}deg)
+                     rotateZ(${smoothRoll * 1.1}deg)
+                     translateZ(${Math.abs(smoothYaw) * -1.5}px)
+                     scale(1.07)`;
+            }
+        }
+    }
+
+    requestAnimationFrame(track);
+}
+
+init();
+</script>
+
+</body>
+</html>
