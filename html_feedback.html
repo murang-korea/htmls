@@ -5,23 +5,49 @@
 <title>익명 피드백</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-body { font-family: Arial, sans-serif; background:#f3f4f6; padding:20px }
-.box { background:#fff; padding:20px; max-width:500px; margin:auto; border-radius:8px }
+body {
+  font-family: Arial, sans-serif;
+  background:#f3f4f6;
+  padding:30px;
+}
+.box {
+  background:#fff;
+  max-width:520px;
+  margin:auto;
+  padding:24px;
+  border-radius:10px;
+}
 .hidden { display:none }
-button { padding:10px 14px; margin-top:10px }
-textarea { width:100%; height:100px }
+button {
+  padding:10px 14px;
+  cursor:pointer;
+}
+textarea, select, input {
+  width:100%;
+  margin-top:8px;
+  padding:8px;
+}
+hr { margin:20px 0 }
+small { color:#666 }
+.item {
+  background:#f9fafb;
+  padding:10px;
+  border-radius:6px;
+  margin-bottom:10px;
+}
 </style>
 </head>
 <body>
 
 <div class="box">
 
-  <!-- 설문 -->
+  <!-- 설문 화면 -->
   <div id="survey">
     <h2>익명 피드백</h2>
 
+    <label>만족도</label>
     <select id="rating">
-      <option value="">만족도 선택</option>
+      <option value="">선택</option>
       <option value="1">1</option>
       <option value="2">2</option>
       <option value="3">3</option>
@@ -29,9 +55,9 @@ textarea { width:100%; height:100px }
       <option value="5">5</option>
     </select>
 
-    <br><br>
-    <textarea id="content" placeholder="의견"></textarea>
-    <br>
+    <label>의견</label>
+    <textarea id="content" placeholder="의견을 입력하세요"></textarea>
+
     <button onclick="submitFeedback()">제출</button>
 
     <hr>
@@ -40,43 +66,48 @@ textarea { width:100%; height:100px }
     </small>
   </div>
 
-  <!-- 로그인 -->
+  <!-- 로그인 화면 -->
   <div id="login" class="hidden">
     <h2>관리자 로그인</h2>
-    <input id="email" placeholder="email"><br><br>
-    <input id="password" type="password" placeholder="password"><br><br>
+    <input id="loginEmail" placeholder="email">
+    <input id="loginPassword" type="password" placeholder="password">
     <button onclick="login()">로그인</button>
-    <button onclick="back()">뒤로</button>
+    <button onclick="goSurvey()">뒤로</button>
   </div>
 
-  <!-- 관리자 -->
+  <!-- 관리자 화면 -->
   <div id="admin" class="hidden">
     <h2>피드백 목록</h2>
     <button onclick="logout()">로그아웃</button>
+    <hr>
     <div id="list"></div>
   </div>
 
 </div>
 
 <script>
-const supabase = supabase.createClient(
-  "https://qkytomftydlrpzckexha.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFreXRvbWZ0eWRscnB6Y2tleGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2MTY1NzcsImV4cCI6MjA4MTE5MjU3N30.oScFElUHwOvtKmUjNmfK5-PoJPqR5i7s0MZXteyTr58"
+const SUPABASE_URL = "SUPABASE_URL";
+const SUPABASE_KEY = "ANON_PUBLIC_KEY";
+
+const supabaseClient = supabase.createClient(
+  https://qkytomftydlrpzckexha.supabase.co,
+  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFreXRvbWZ0eWRscnB6Y2tleGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2MTY1NzcsImV4cCI6MjA4MTE5MjU3N30.oScFElUHwOvtKmUjNmfK5-PoJPqR5i7s0MZXteyTr58
 );
 
-// 화면 제어
-const survey = document.getElementById("survey");
+// 화면 요소
+const surveyBox = document.getElementById("survey");
 const loginBox = document.getElementById("login");
-const admin = document.getElementById("admin");
+const adminBox = document.getElementById("admin");
+const listBox = document.getElementById("list");
 
+// 화면 전환
 function showLogin() {
-  survey.classList.add("hidden");
+  surveyBox.classList.add("hidden");
   loginBox.classList.remove("hidden");
 }
-
-function back() {
+function goSurvey() {
   loginBox.classList.add("hidden");
-  survey.classList.remove("hidden");
+  surveyBox.classList.remove("hidden");
 }
 
 // 설문 제출
@@ -89,61 +120,64 @@ async function submitFeedback() {
     return;
   }
 
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from("feedbacks")
     .insert([{ rating, content }]);
 
   if (error) {
+    console.error(error);
     alert("저장 실패");
-  } else {
-    alert("제출 완료");
-    document.getElementById("content").value = "";
-    document.getElementById("rating").value = "";
+    return;
   }
+
+  alert("제출 완료");
+  document.getElementById("rating").value = "";
+  document.getElementById("content").value = "";
 }
 
 // 로그인
 async function login() {
-  const email = email.value;
-  const password = password.value;
+  const email = document.getElementById("loginEmail").value;
+  const password = document.getElementById("loginPassword").value;
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email, password
+  const { error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password
   });
 
   if (error) {
     alert("로그인 실패");
-  } else {
-    loadAdmin();
+    console.error(error);
+    return;
   }
+
+  loadAdmin();
 }
 
 // 관리자 데이터 로드
 async function loadAdmin() {
-  survey.classList.add("hidden");
+  surveyBox.classList.add("hidden");
   loginBox.classList.add("hidden");
-  admin.classList.remove("hidden");
+  adminBox.classList.remove("hidden");
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("feedbacks")
     .select("*")
-    .order("created_at", { ascending:false });
+    .order("created_at", { ascending: false });
 
   if (error) {
-    alert("불러오기 실패");
+    alert("데이터 불러오기 실패");
+    console.error(error);
     return;
   }
 
-  const list = document.getElementById("list");
-  list.innerHTML = "";
-
-  data.forEach(d => {
-    list.innerHTML += `
-      <div>
-        ★ ${d.rating}<br>
-        ${d.content}<br>
-        <small>${d.created_at}</small>
-        <hr>
+  listBox.innerHTML = "";
+  data.forEach(item => {
+    listBox.innerHTML += `
+      <div class="item">
+        ★ ${item.rating}<br>
+        ${item.content}<br>
+        <small>${new Date(item.created_at).toLocaleString()}</small>
       </div>
     `;
   });
@@ -151,14 +185,16 @@ async function loadAdmin() {
 
 // 로그아웃
 async function logout() {
-  await supabase.auth.signOut();
-  admin.classList.add("hidden");
-  survey.classList.remove("hidden");
+  await supabaseClient.auth.signOut();
+  adminBox.classList.add("hidden");
+  surveyBox.classList.remove("hidden");
 }
 
-// 새로고침 시 로그인 유지 체크
-supabase.auth.getSession().then(({ data }) => {
-  if (data.session) loadAdmin();
+// 새로고침 시 로그인 유지
+supabaseClient.auth.getSession().then(({ data }) => {
+  if (data.session) {
+    loadAdmin();
+  }
 });
 </script>
 
