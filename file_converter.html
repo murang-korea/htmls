@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>멀티 파일 변환기</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f3f4f6;
+}
+header {
+    background: #111827;
+    color: #fff;
+    padding: 16px;
+    font-size: 18px;
+    font-weight: bold;
+}
+main {
+    max-width: 900px;
+    margin: 20px auto;
+    background: #fff;
+    padding: 20px;
+    border-radius: 10px;
+}
+.drop {
+    border: 2px dashed #9ca3af;
+    padding: 40px;
+    text-align: center;
+    border-radius: 10px;
+    color: #6b7280;
+}
+select, input[type=number], input[type=range] {
+    margin-top: 10px;
+    padding: 8px;
+    width: 100%;
+}
+button {
+    margin-top: 12px;
+    padding: 12px;
+    width: 100%;
+    border: none;
+    background: #2563eb;
+    color: #fff;
+    border-radius: 6px;
+    font-size: 15px;
+    cursor: pointer;
+}
+.result {
+    margin-top: 20px;
+}
+.file {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+a {
+    color: #2563eb;
+    text-decoration: none;
+}
+</style>
+</head>
+<body>
+
+<header>멀티 파일 변환기</header>
+
+<main>
+    <div class="drop">
+        파일 선택
+        <input type="file" id="fileInput" multiple>
+    </div>
+
+    <select id="mode">
+        <option value="">변환 방식 선택</option>
+        <option value="img-jpg">이미지 → JPG</option>
+        <option value="img-png">이미지 → PNG</option>
+        <option value="img-webp">이미지 → WEBP</option>
+        <option value="txt-html">TXT → HTML</option>
+        <option value="txt-md">TXT → MD</option>
+        <option value="md-html">MD → HTML</option>
+        <option value="json-csv">JSON → CSV</option>
+        <option value="csv-json">CSV → JSON</option>
+    </select>
+
+    <label>이미지 품질 (이미지 변환 시)</label>
+    <input type="range" id="quality" min="0.1" max="1" step="0.1" value="0.8">
+
+    <button onclick="convert()">변환 시작</button>
+
+    <div class="result" id="result"></div>
+</main>
+
+<script>
+function convert() {
+    const files = document.getElementById("fileInput").files;
+    const mode = document.getElementById("mode").value;
+    const quality = document.getElementById("quality").value;
+    const result = document.getElementById("result");
+    result.innerHTML = "";
+
+    [...files].forEach(file => {
+        if (mode.startsWith("img")) convertImage(file, mode, quality);
+        else convertText(file, mode);
+    });
+}
+
+function convertImage(file, mode, quality) {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = e => {
+        img.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            canvas.getContext("2d").drawImage(img, 0, 0);
+            let type = "image/jpeg";
+            if (mode === "img-png") type = "image/png";
+            if (mode === "img-webp") type = "image/webp";
+
+            canvas.toBlob(blob => {
+                download(blob, file.name.split(".")[0]);
+            }, type, quality);
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function convertText(file, mode) {
+    const reader = new FileReader();
+    reader.onload = e => {
+        let text = e.target.result;
+        let out = text;
+
+        if (mode === "txt-html") out = `<pre>${text}</pre>`;
+        if (mode === "txt-md") out = text;
+        if (mode === "md-html") out = `<html><body>${text.replace(/\n/g,"<br>")}</body></html>`;
+        if (mode === "json-csv") {
+            const json = JSON.parse(text);
+            const keys = Object.keys(json[0]);
+            out = keys.join(",") + "\n" + json.map(o => keys.map(k => o[k]).join(",")).join("\n");
+        }
+        if (mode === "csv-json") {
+            const [h,...r] = text.split("\n");
+            const keys = h.split(",");
+            out = JSON.stringify(r.map(l => {
+                const v = l.split(",");
+                return keys.reduce((o,k,i)=>{o[k]=v[i];return o;},{});
+            }), null, 2);
+        }
+        download(new Blob([out]), file.name.split(".")[0]);
+    };
+    reader.readAsText(file);
+}
+
+function download(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.getElementById("result").innerHTML +=
+        `<div class="file">${a.download} <a href="${a.href}" download>다운로드</a></div>`;
+}
+</script>
+
+</body>
+</html>
