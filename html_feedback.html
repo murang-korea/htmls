@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>익명 피드백</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+body { font-family: Arial, sans-serif; background:#f3f4f6; padding:20px }
+.box { background:#fff; padding:20px; max-width:500px; margin:auto; border-radius:8px }
+.hidden { display:none }
+button { padding:10px 14px; margin-top:10px }
+textarea { width:100%; height:100px }
+</style>
+</head>
+<body>
+
+<div class="box">
+
+  <!-- 설문 -->
+  <div id="survey">
+    <h2>익명 피드백</h2>
+
+    <select id="rating">
+      <option value="">만족도 선택</option>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+    </select>
+
+    <br><br>
+    <textarea id="content" placeholder="의견"></textarea>
+    <br>
+    <button onclick="submitFeedback()">제출</button>
+
+    <hr>
+    <small>
+      관리자면 <a href="#" onclick="showLogin()">로그인</a>
+    </small>
+  </div>
+
+  <!-- 로그인 -->
+  <div id="login" class="hidden">
+    <h2>관리자 로그인</h2>
+    <input id="email" placeholder="email"><br><br>
+    <input id="password" type="password" placeholder="password"><br><br>
+    <button onclick="login()">로그인</button>
+    <button onclick="back()">뒤로</button>
+  </div>
+
+  <!-- 관리자 -->
+  <div id="admin" class="hidden">
+    <h2>피드백 목록</h2>
+    <button onclick="logout()">로그아웃</button>
+    <div id="list"></div>
+  </div>
+
+</div>
+
+<script>
+const supabase = supabase.createClient(
+  "https://qkytomftydlrpzckexha.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFreXRvbWZ0eWRscnB6Y2tleGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2MTY1NzcsImV4cCI6MjA4MTE5MjU3N30.oScFElUHwOvtKmUjNmfK5-PoJPqR5i7s0MZXteyTr58"
+);
+
+// 화면 제어
+const survey = document.getElementById("survey");
+const loginBox = document.getElementById("login");
+const admin = document.getElementById("admin");
+
+function showLogin() {
+  survey.classList.add("hidden");
+  loginBox.classList.remove("hidden");
+}
+
+function back() {
+  loginBox.classList.add("hidden");
+  survey.classList.remove("hidden");
+}
+
+// 설문 제출
+async function submitFeedback() {
+  const rating = document.getElementById("rating").value;
+  const content = document.getElementById("content").value.trim();
+
+  if (!rating || !content) {
+    alert("모두 입력해");
+    return;
+  }
+
+  const { error } = await supabase
+    .from("feedbacks")
+    .insert([{ rating, content }]);
+
+  if (error) {
+    alert("저장 실패");
+  } else {
+    alert("제출 완료");
+    document.getElementById("content").value = "";
+    document.getElementById("rating").value = "";
+  }
+}
+
+// 로그인
+async function login() {
+  const email = email.value;
+  const password = password.value;
+
+  const { error } = await supabase.auth.signInWithPassword({
+    email, password
+  });
+
+  if (error) {
+    alert("로그인 실패");
+  } else {
+    loadAdmin();
+  }
+}
+
+// 관리자 데이터 로드
+async function loadAdmin() {
+  survey.classList.add("hidden");
+  loginBox.classList.add("hidden");
+  admin.classList.remove("hidden");
+
+  const { data, error } = await supabase
+    .from("feedbacks")
+    .select("*")
+    .order("created_at", { ascending:false });
+
+  if (error) {
+    alert("불러오기 실패");
+    return;
+  }
+
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+
+  data.forEach(d => {
+    list.innerHTML += `
+      <div>
+        ★ ${d.rating}<br>
+        ${d.content}<br>
+        <small>${d.created_at}</small>
+        <hr>
+      </div>
+    `;
+  });
+}
+
+// 로그아웃
+async function logout() {
+  await supabase.auth.signOut();
+  admin.classList.add("hidden");
+  survey.classList.remove("hidden");
+}
+
+// 새로고침 시 로그인 유지 체크
+supabase.auth.getSession().then(({ data }) => {
+  if (data.session) loadAdmin();
+});
+</script>
+
+</body>
+</html>
