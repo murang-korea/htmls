@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>VOID DODGER</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            cursor: none;
+        }
+        
+        canvas {
+            display: block;
+            background: #0a0a0a;
+        }
+        
+        #ui {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #fff;
+            font-size: 32px;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(255,255,255,0.5);
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        #gameover {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            text-align: center;
+            display: none;
+            z-index: 20;
+        }
+        
+        #gameover h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #ff3333;
+            text-shadow: 0 0 20px rgba(255,51,51,0.8);
+        }
+        
+        #gameover p {
+            font-size: 24px;
+            margin: 10px 0;
+        }
+        
+        #gameover .restart {
+            margin-top: 30px;
+            font-size: 20px;
+            color: #aaa;
+            animation: blink 1.5s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">0.00s</div>
+    <div id="gameover">
+        <h1>GAME OVER</h1>
+        <p id="finalScore">SURVIVED: 0.00s</p>
+        <p id="bestScore">BEST: 0.00s</p>
+        <p class="restart">TAP TO RESTART</p>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const uiElement = document.getElementById('ui');
+        const gameoverElement = document.getElementById('gameover');
+        const finalScoreElement = document.getElementById('finalScore');
+        const bestScoreElement = document.getElementById('bestScore');
+
+        let W, H;
+        let player = { x: 0, y: 0, r: 12 };
+        let walls = [];
+        let chasers = [];
+        let lasers = [];
+        let gameState = 'playing'; // 'playing' or 'gameover'
+        let startTime = 0;
+        let survivalTime = 0;
+        let bestTime = parseFloat(localStorage.getItem('bestTime') || 0);
+        let mouseX = 0, mouseY = 0;
+
+        function resize() {
+            W = canvas.width = window.innerWidth;
+            H = canvas.height = window.innerHeight;
+            if (gameState === 'playing') {
+                player.x = W / 2;
+                player.y = H / 2;
+            }
+        }
+
+        function init() {
+            resize();
+            walls = [];
+            chasers = [];
+            lasers = [];
+            gameState = 'playing';
+            startTime = Date.now();
+            survivalTime = 0;
+            player.x = W / 2;
+            player.y = H / 2;
+            mouseX = player.x;
+            mouseY = player.y;
+            gameoverElement.style.display = 'none';
+            
+            // 초기 벽 생성
+            for (let i = 0; i < 5; i++) {
+                spawnWall();
+            }
+        }
+
+        function spawnWall() {
+            const size = 40 + Math.random() * 60;
+            walls.push({
+                x: Math.random() * (W - size),
+                y: Math.random() * (H - size),
+                w: size,
+                h: size
+            });
+        }
+
+        function spawnChaser() {
+            chasers.push({
+                x: Math.random() * W,
+                y: Math.random() * H,
+                r: 15,
+                speed: 1 + survivalTime * 0.05
+            });
+        }
+
+        function spawnLaser() {
+            const type = Math.floor(Math.random() * 3); // 0: horizontal, 1: vertical, 2: diagonal
+            const laser = {
+                type: type,
+                warning: true,
+                warningTime: Date.now(),
+                fired: false
+            };
+
+            if (type === 0) { // horizontal
+                laser.y = Math.random() * H;
+                laser.x = 0;
+                laser.w = W;
+                laser.h = 5;
+            } else if (type === 1) { // vertical
+                laser.x = Math.random() * W;
+                laser.y = 0;
+                laser.w = 5;
+                laser.h = H;
+            } else { // diagonal
+                laser.diagonal = Math.random() > 0.5 ? 1 : -1;
+                laser.x = 0;
+                laser.y = 0;
+                laser.w = W * 1.5;
+                laser.h = 10;
+            }
+
+            lasers.push(laser);
+        }
+
+        function update() {
+            if (gameState !== 'playing') return;
+
+            survivalTime = (Date.now() - startTime) / 1000;
+            uiElement.textContent = survivalTime.toFixed(2) + 's';
+
+            // 플레이어 이동 (부드럽게)
+            const dx = mouseX - player.x;
+            const dy = mouseY - player.y;
+            player.x += dx * 0.15;
+            player.y += dy * 0.15;
+
+            // 난이도 상승
+            if (survivalTime > 5 && chasers.length === 0) {
+                spawnChaser();
+            }
+            if (survivalTime > 10 && Math.random() < 0.01) {
+                spawnLaser();
+            }
+            if (survivalTime > 20 && Math.random() < 0.005) {
+                spawnWall();
+            }
+            if (survivalTime > 15 && chasers.length < 3 && Math.random() < 0.003) {
+                spawnChaser();
+            }
+
+            // 추적 적 업데이트
+            chasers.forEach(c => {
+                const angle = Math.atan2(player.y - c.y, player.x - c.x);
+                const randomOffset = (Math.random() - 0.5) * 0.3;
+                c.x += Math.cos(angle + randomOffset) * c.speed;
+                c.y += Math.sin(angle + randomOffset) * c.speed;
+            });
+
+            // 레이저 업데이트
+            lasers = lasers.filter(l => {
+                if (l.warning) {
+                    if (Date.now() - l.warningTime > 500) {
+                        l.warning = false;
+                        l.fired = true;
+                        l.firedTime = Date.now();
+                    }
+                    return true;
+                }
+                if (l.fired && Date.now() - l.firedTime > 1000) {
+                    return false;
+                }
+                return true;
+            });
+
+            // 충돌 검사
+            checkCollisions();
+        }
+
+        function checkCollisions() {
+            // 벽 충돌
+            for (let w of walls) {
+                if (circleRectCollision(player.x, player.y, player.r, w.x, w.y, w.w, w.h)) {
+                    endGame();
+                    return;
+                }
+            }
+
+            // 추적 적 충돌
+            for (let c of chasers) {
+                const dist = Math.hypot(player.x - c.x, player.y - c.y);
+                if (dist < player.r + c.r) {
+                    endGame();
+                    return;
+                }
+            }
+
+            // 레이저 충돌
+            for (let l of lasers) {
+                if (!l.fired) continue;
+                
+                if (l.type === 2) { // diagonal
+                    const angle = l.diagonal > 0 ? Math.PI / 4 : -Math.PI / 4;
+                    const dist = Math.abs((player.y - l.diagonal * player.x) / Math.sqrt(2));
+                    if (dist < player.r + l.h / 2) {
+                        endGame();
+                        return;
+                    }
+                } else if (circleRectCollision(player.x, player.y, player.r, l.x, l.y, l.w, l.h)) {
+                    endGame();
+                    return;
+                }
+            }
+        }
+
+        function circleRectCollision(cx, cy, cr, rx, ry, rw, rh) {
+            const testX = Math.max(rx, Math.min(cx, rx + rw));
+            const testY = Math.max(ry, Math.min(cy, ry + rh));
+            const dist = Math.hypot(cx - testX, cy - testY);
+            return dist < cr;
+        }
+
+        function draw() {
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, W, H);
+
+            // 벽 그리기
+            ctx.fillStyle = '#333';
+            walls.forEach(w => {
+                ctx.fillRect(w.x, w.y, w.w, w.h);
+            });
+
+            // 추적 적 그리기
+            chasers.forEach(c => {
+                ctx.fillStyle = '#ff6666';
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // 레이저 그리기
+            lasers.forEach(l => {
+                if (l.warning) {
+                    ctx.strokeStyle = '#ff3333';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                } else {
+                    ctx.fillStyle = '#ff0000';
+                    ctx.setLineDash([]);
+                }
+
+                if (l.type === 2) { // diagonal
+                    ctx.save();
+                    ctx.translate(W / 2, H / 2);
+                    ctx.rotate(l.diagonal > 0 ? Math.PI / 4 : -Math.PI / 4);
+                    if (l.warning) {
+                        ctx.strokeRect(-W, -l.h / 2, W * 2, l.h);
+                    } else {
+                        ctx.fillRect(-W, -l.h / 2, W * 2, l.h);
+                    }
+                    ctx.restore();
+                } else {
+                    if (l.warning) {
+                        ctx.strokeRect(l.x, l.y, l.w, l.h);
+                    } else {
+                        ctx.fillRect(l.x, l.y, l.w, l.h);
+                    }
+                }
+                ctx.setLineDash([]);
+            });
+
+            // 플레이어 그리기
+            if (gameState === 'playing') {
+                ctx.fillStyle = '#fff';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#fff';
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function endGame() {
+            gameState = 'gameover';
+            finalScoreElement.textContent = `SURVIVED: ${survivalTime.toFixed(2)}s`;
+            
+            if (survivalTime > bestTime) {
+                bestTime = survivalTime;
+                localStorage.setItem('bestTime', bestTime);
+            }
+            bestScoreElement.textContent = `BEST: ${bestTime.toFixed(2)}s`;
+            gameoverElement.style.display = 'block';
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 이벤트 리스너
+        window.addEventListener('resize', resize);
+        
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        }, { passive: false });
+
+        window.addEventListener('click', () => {
+            if (gameState === 'gameover') {
+                init();
+            }
+        });
+
+        window.addEventListener('touchstart', (e) => {
+            if (gameState === 'gameover') {
+                init();
+            }
+        });
+
+        // 게임 시작
+        init();
+        gameLoop();
+    </script>
+</body>
+</html>
