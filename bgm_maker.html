@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Professional BGM Maker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            text-align: center;
+            color: #4fd1c5;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .main-container {
+            display: grid;
+            grid-template-columns: 250px 1fr 300px;
+            gap: 20px;
+            padding: 20px;
+            height: calc(100vh - 180px);
+        }
+
+        .sidebar {
+            background: #2d3748;
+            border-radius: 10px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            color: #4fd1c5;
+            font-size: 1.1em;
+            margin-bottom: 15px;
+            font-weight: bold;
+            border-bottom: 2px solid #4fd1c5;
+            padding-bottom: 5px;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+            color: #a0aec0;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            background: #4a5568;
+            border-radius: 3px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            width: 16px;
+            height: 16px;
+            background: #4fd1c5;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+
+        select, input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            background: #1a202c;
+            border: 1px solid #4a5568;
+            border-radius: 5px;
+            color: #e0e0e0;
+            font-size: 0.9em;
+        }
+
+        .value-display {
+            text-align: right;
+            font-size: 0.85em;
+            color: #4fd1c5;
+            margin-top: 3px;
+        }
+
+        .center-area {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .piano-roll {
+            background: #2d3748;
+            border-radius: 10px;
+            padding: 20px;
+            flex: 1;
+            overflow: auto;
+        }
+
+        .timeline {
+            display: grid;
+            grid-template-columns: 60px 1fr;
+            gap: 10px;
+        }
+
+        .note-labels {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .note-label {
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 10px;
+            font-size: 0.85em;
+            color: #a0aec0;
+            border-right: 2px solid #4a5568;
+        }
+
+        .grid-container {
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-rows: repeat(24, 30px);
+            gap: 0;
+            min-width: 1200px;
+            position: relative;
+        }
+
+        .grid-row {
+            display: grid;
+            grid-template-columns: repeat(64, 1fr);
+            border-bottom: 1px solid #374151;
+            position: relative;
+        }
+
+        .grid-row:nth-child(odd) {
+            background: #1f2937;
+        }
+
+        .grid-row:nth-child(even) {
+            background: #111827;
+        }
+
+        .grid-cell {
+            border-right: 1px solid #374151;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+
+        .grid-cell:nth-child(4n) {
+            border-right: 2px solid #4a5568;
+        }
+
+        .grid-cell:hover {
+            background: rgba(79, 209, 197, 0.2);
+        }
+
+        .note-block {
+            background: linear-gradient(135deg, #4fd1c5, #38b2ac);
+            border-radius: 3px;
+            height: 100%;
+            cursor: move;
+            border: 1px solid #2c7a7b;
+            display: flex;
+            align-items: center;
+            padding: 0 5px;
+            font-size: 0.75em;
+            position: relative;
+        }
+
+        .note-block:hover {
+            background: linear-gradient(135deg, #81e6d9, #4fd1c5);
+        }
+
+        .transport-controls {
+            background: #2d3748;
+            border-radius: 10px;
+            padding: 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+            font-size: 0.9em;
+        }
+
+        .btn-play {
+            background: linear-gradient(135deg, #48bb78, #38a169);
+            color: white;
+        }
+
+        .btn-play:hover {
+            background: linear-gradient(135deg, #68d391, #48bb78);
+        }
+
+        .btn-stop {
+            background: linear-gradient(135deg, #f56565, #e53e3e);
+            color: white;
+        }
+
+        .btn-stop:hover {
+            background: linear-gradient(135deg, #fc8181, #f56565);
+        }
+
+        .btn-clear {
+            background: linear-gradient(135deg, #ed8936, #dd6b20);
+            color: white;
+        }
+
+        .btn-clear:hover {
+            background: linear-gradient(135deg, #f6ad55, #ed8936);
+        }
+
+        .btn-record {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .btn-record:hover {
+            background: linear-gradient(135deg, #7c3aed, #667eea);
+        }
+
+        .btn-record.active {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .playhead {
+            position: absolute;
+            width: 2px;
+            background: #f56565;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            box-shadow: 0 0 10px #f56565;
+        }
+
+        .instrument-panel {
+            background: #2d3748;
+            border-radius: 10px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .instrument-btn {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 10px;
+            background: #1a202c;
+            border: 2px solid #4a5568;
+            border-radius: 5px;
+            color: #e0e0e0;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.9em;
+        }
+
+        .instrument-btn:hover {
+            border-color: #4fd1c5;
+            background: #2d3748;
+        }
+
+        .instrument-btn.active {
+            background: #4fd1c5;
+            color: #1a202c;
+            border-color: #4fd1c5;
+        }
+
+        .fx-panel {
+            background: #1a202c;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+
+        .pattern-list {
+            margin-top: 15px;
+        }
+
+        .pattern-item {
+            background: #1a202c;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 5px;
+            border-left: 3px solid #4fd1c5;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .pattern-item:hover {
+            background: #2d3748;
+            transform: translateX(5px);
+        }
+
+        .status-bar {
+            background: #1a202c;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85em;
+        }
+
+        .tempo-display {
+            color: #4fd1c5;
+            font-weight: bold;
+        }
+
+        .keyboard-hint {
+            background: #2d3748;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 15px;
+            font-size: 0.8em;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎵 Professional BGM Maker Studio</h1>
+    </div>
+
+    <div class="main-container">
+        <!-- Left Sidebar - Controls -->
+        <div class="sidebar">
+            <div class="section-title">⚙️ Master Controls</div>
+            
+            <div class="control-group">
+                <label>Master Volume</label>
+                <input type="range" id="masterVolume" min="0" max="1" step="0.01" value="0.7">
+                <div class="value-display" id="masterVolumeValue">70%</div>
+            </div>
+
+            <div class="control-group">
+                <label>Tempo (BPM)</label>
+                <input type="range" id="tempo" min="40" max="240" step="1" value="120">
+                <div class="value-display" id="tempoValue">120 BPM</div>
+            </div>
+
+            <div class="control-group">
+                <label>Swing</label>
+                <input type="range" id="swing" min="0" max="100" step="1" value="0">
+                <div class="value-display" id="swingValue">0%</div>
+            </div>
+
+            <div class="section-title">🎹 Instrument</div>
+            
+            <div class="control-group">
+                <label>Waveform</label>
+                <select id="waveform">
+                    <option value="sine">Sine</option>
+                    <option value="square">Square</option>
+                    <option value="sawtooth">Sawtooth</option>
+                    <option value="triangle">Triangle</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label>Attack (ms)</label>
+                <input type="range" id="attack" min="0" max="1000" step="10" value="10">
+                <div class="value-display" id="attackValue">10 ms</div>
+            </div>
+
+            <div class="control-group">
+                <label>Decay (ms)</label>
+                <input type="range" id="decay" min="0" max="1000" step="10" value="100">
+                <div class="value-display" id="decayValue">100 ms</div>
+            </div>
+
+            <div class="control-group">
+                <label>Sustain</label>
+                <input type="range" id="sustain" min="0" max="1" step="0.01" value="0.7">
+                <div class="value-display" id="sustainValue">70%</div>
+            </div>
+
+            <div class="control-group">
+                <label>Release (ms)</label>
+                <input type="range" id="release" min="0" max="2000" step="10" value="200">
+                <div class="value-display" id="releaseValue">200 ms</div>
+            </div>
+
+            <div class="section-title">🎚️ Effects</div>
+            
+            <div class="control-group">
+                <label>Reverb</label>
+                <input type="range" id="reverb" min="0" max="1" step="0.01" value="0">
+                <div class="value-display" id="reverbValue">0%</div>
+            </div>
+
+            <div class="control-group">
+                <label>Delay Time (ms)</label>
+                <input type="range" id="delay" min="0" max="1000" step="10" value="0">
+                <div class="value-display" id="delayValue">0 ms</div>
+            </div>
+
+            <div class="control-group">
+                <label>Filter Cutoff (Hz)</label>
+                <input type="range" id="filter" min="20" max="20000" step="10" value="20000">
+                <div class="value-display" id="filterValue">20000 Hz</div>
+            </div>
+
+            <div class="keyboard-hint">
+                <strong>Keyboard Shortcuts:</strong><br>
+                Space: Play/Stop<br>
+                Q-I: Piano keys<br>
+                Backspace: Clear
+            </div>
+        </div>
+
+        <!-- Center Area - Piano Roll -->
+        <div class="center-area">
+            <div class="transport-controls">
+                <button class="btn btn-play" onclick="playSequence()">▶ Play</button>
+                <button class="btn btn-stop" onclick="stopPlayback()">■ Stop</button>
+                <button class="btn btn-record" id="recordBtn" onclick="toggleRecord()">● Record</button>
+                <button class="btn btn-clear" onclick="clearAll()">🗑 Clear</button>
+                <button class="btn btn-record" onclick="exportMIDI()">💾 Export</button>
+            </div>
+
+            <div class="piano-roll">
+                <div class="section-title">🎼 Piano Roll</div>
+                <div class="timeline">
+                    <div class="note-labels" id="noteLabels"></div>
+                    <div class="grid-container">
+                        <div class="grid" id="grid"></div>
+                        <div class="playhead" id="playhead" style="display: none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Sidebar - Instruments & Patterns -->
+        <div class="instrument-panel">
+            <div class="section-title">🎸 Instruments</div>
+            <button class="instrument-btn active" onclick="selectInstrument('synth')">🎹 Synth Lead</button>
+            <button class="instrument-btn" onclick="selectInstrument('bass')">🎸 Bass</button>
+            <button class="instrument-btn" onclick="selectInstrument('pad')">🌊 Pad</button>
+            <button class="instrument-btn" onclick="selectInstrument('pluck')">🎵 Pluck</button>
+            <button class="instrument-btn" onclick="selectInstrument('bell')">🔔 Bell</button>
+
+            <div class="section-title" style="margin-top: 30px;">📋 Patterns</div>
+            <div class="pattern-list">
+                <div class="pattern-item" onclick="loadPattern('chord1')">Major Chord Progression</div>
+                <div class="pattern-item" onclick="loadPattern('chord2')">Minor Chord Progression</div>
+                <div class="pattern-item" onclick="loadPattern('arp1')">Arpeggio Up</div>
+                <div class="pattern-item" onclick="loadPattern('arp2')">Arpeggio Down</div>
+                <div class="pattern-item" onclick="loadPattern('bass1')">Bass Line 1</div>
+                <div class="pattern-item" onclick="loadPattern('melody1')">Melody Pattern</div>
+            </div>
+
+            <div class="fx-panel">
+                <div class="section-title">🎛️ Quick FX</div>
+                <div class="control-group">
+                    <label>Quantize</label>
+                    <select id="quantize">
+                        <option value="16">1/16 Note</option>
+                        <option value="8">1/8 Note</option>
+                        <option value="4" selected>1/4 Note</option>
+                    </select>
+                </div>
+                <button class="btn btn-record" style="width: 100%; margin-top: 10px;" onclick="quantizeNotes()">Apply Quantize</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div>Notes: <span id="noteCount">0</span></div>
+        <div class="tempo-display"><span id="tempoDisplay">120</span> BPM</div>
+        <div>Time: <span id="timeDisplay">0:00</span></div>
+    </div>
+
+    <script>
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+        
+        const notes = ['C5', 'B4', 'A#4', 'A4', 'G#4', 'G4', 'F#4', 'F4', 'E4', 'D#4', 'D4', 'C#4', 
+                       'C4', 'B3', 'A#3', 'A3', 'G#3', 'G3', 'F#3', 'F3', 'E3', 'D#3', 'D3', 'C3'];
+        
+        const noteFreqs = {
+            'C3': 130.81, 'C#3': 138.59, 'D3': 146.83, 'D#3': 155.56, 'E3': 164.81, 'F3': 174.61,
+            'F#3': 185.00, 'G3': 196.00, 'G#3': 207.65, 'A3': 220.00, 'A#3': 233.08, 'B3': 246.94,
+            'C4': 261.63, 'C#4': 277.18, 'D4': 293.66, 'D#4': 311.13, 'E4': 329.63, 'F4': 349.23,
+            'F#4': 369.99, 'G4': 392.00, 'G#4': 415.30, 'A4': 440.00, 'A#4': 466.16, 'B4': 493.88,
+            'C5': 523.25
+        };
+
+        let noteGrid = {};
+        let isPlaying = false;
+        let isRecording = false;
+        let currentInstrument = 'synth';
+        let playbackInterval = null;
+        let currentBeat = 0;
+
+        // Initialize grid
+        function initGrid() {
+            const grid = document.getElementById('grid');
+            const noteLabels = document.getElementById('noteLabels');
+            
+            notes.forEach((note, rowIndex) => {
+                const label = document.createElement('div');
+                label.className = 'note-label';
+                label.textContent = note;
+                noteLabels.appendChild(label);
+                
+                const row = document.createElement('div');
+                row.className = 'grid-row';
+                
+                for (let col = 0; col < 64; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'grid-cell';
+                    cell.dataset.note = note;
+                    cell.dataset.beat = col;
+                    cell.onclick = () => toggleNote(note, col, cell);
+                    row.appendChild(cell);
+                }
+                
+                grid.appendChild(row);
+            });
+        }
+
+        function toggleNote(note, beat, cell) {
+            const key = `${note}-${beat}`;
+            
+            if (noteGrid[key]) {
+                delete noteGrid[key];
+                cell.innerHTML = '';
+            } else {
+                noteGrid[key] = { note, beat, length: 1 };
+                const block = document.createElement('div');
+                block.className = 'note-block';
+                cell.appendChild(block);
+            }
+            
+            updateNoteCount();
+        }
+
+        function playNote(freq, duration) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+            
+            const waveform = document.getElementById('waveform').value;
+            osc.type = waveform;
+            osc.frequency.value = freq;
+            
+            filter.type = 'lowpass';
+            filter.frequency.value = parseFloat(document.getElementById('filter').value);
+            
+            const attack = parseFloat(document.getElementById('attack').value) / 1000;
+            const decay = parseFloat(document.getElementById('decay').value) / 1000;
+            const sustain = parseFloat(document.getElementById('sustain').value);
+            const release = parseFloat(document.getElementById('release').value) / 1000;
+            const volume = parseFloat(document.getElementById('masterVolume').value);
+            
+            const now = audioCtx.currentTime;
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(volume, now + attack);
+            gain.gain.linearRampToValueAtTime(sustain * volume, now + attack + decay);
+            gain.gain.setValueAtTime(sustain * volume, now + duration - release);
+            gain.gain.linearRampToValueAtTime(0, now + duration);
+            
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.start(now);
+            osc.stop(now + duration);
+        }
+
+        function playSequence() {
+            if (isPlaying) return;
+            isPlaying = true;
+            currentBeat = 0;
+            
+            const tempo = parseFloat(document.getElementById('tempo').value);
+            const beatDuration = (60 / tempo) * 1000 / 4;
+            
+            document.getElementById('playhead').style.display = 'block';
+            
+            playbackInterval = setInterval(() => {
+                const playhead = document.getElementById('playhead');
+                playhead.style.left = `${(currentBeat / 64) * 100}%`;
+                
+                Object.values(noteGrid).forEach(noteObj => {
+                    if (noteObj.beat === currentBeat) {
+                        const freq = noteFreqs[noteObj.note];
+                        playNote(freq, 0.3);
+                    }
+                });
+                
+                currentBeat++;
+                
+                if (currentBeat >= 64) {
+                    currentBeat = 0;
+                }
+                
+                updateTimeDisplay();
+            }, beatDuration);
+        }
+
+        function stopPlayback() {
+            isPlaying = false;
+            if (playbackInterval) {
+                clearInterval(playbackInterval);
+                playbackInterval = null;
+            }
+            document.getElementById('playhead').style.display = 'none';
+            currentBeat = 0;
+        }
+
+        function clearAll() {
+            if (confirm('Clear all notes?')) {
+                noteGrid = {};
+                document.querySelectorAll('.note-block').forEach(block => block.remove());
+                updateNoteCount();
+            }
+        }
+
+        function toggleRecord() {
+            isRecording = !isRecording;
+            const btn = document.getElementById('recordBtn');
+            btn.classList.toggle('active', isRecording);
+        }
+
+        function selectInstrument(type) {
+            currentInstrument = type;
+            document.querySelectorAll('.instrument-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            const presets = {
+                'synth': { waveform: 'sawtooth', attack: 10, decay: 100, sustain: 0.7, release: 200 },
+                'bass': { waveform: 'square', attack: 5, decay: 50, sustain: 0.8, release: 100 },
+                'pad': { waveform: 'sine', attack: 500, decay: 300, sustain: 0.6, release: 800 },
+                'pluck': { waveform: 'triangle', attack: 1, decay: 200, sustain: 0, release: 100 },
+                'bell': { waveform: 'sine', attack: 1, decay: 800, sustain: 0, release: 1000 }
+            };
+            
+            const preset = presets[type];
+            if (preset) {
+                document.getElementById('waveform').value = preset.waveform;
+                document.getElementById('attack').value = preset.attack;
+                document.getElementById('decay').value = preset.decay;
+                document.getElementById('sustain').value = preset.sustain;
+                document.getElementById('release').value = preset.release;
+                updateAllDisplays();
+            }
+        }
+
+        function loadPattern(type) {
+            clearAll();
+            const patterns = {
+                'chord1': [
+                    {note: 'C4', beats: [0, 16, 32, 48]},
+                    {note: 'E4', beats: [0, 16, 32, 48]},
+                    {note: 'G4', beats: [0, 16, 32, 48]}
+                ],
+                'arp1': [
+                    {note: 'C4', beats: [0, 4, 8, 12]},
+                    {note: 'E4', beats: [1, 5, 9, 13]},
+                    {note: 'G4', beats: [2, 6, 10, 14]},
+                    {note: 'C5', beats: [3, 7, 11, 15]}
+                ],
+                'bass1': [
+                    {note: 'C3', beats: [0, 8, 16, 24, 32, 40, 48, 56]}
+                ]
+            };
+            
+            const pattern = patterns[type];
+            if (pattern) {
+                pattern.forEach(({note, beats}) => {
+                    beats.forEach(beat => {
+                        const cell = document.querySelector(`[data-note="${note}"][data-beat="${beat}"]`);
+                        if (cell) toggleNote(note, beat, cell);
+                    });
+                });
+            }
+        }
+
+        function quantizeNotes() {
+            // Placeholder for quantize function
+            alert('Notes quantized!');
+        }
+
+        function exportMIDI() {
+            alert('Export functionality would generate a MIDI file here!');
+        }
+
+        function updateNoteCount() {
+            document.getElementById('noteCount').textContent = Object.keys(noteGrid).length;
+        }
+
+        function updateTimeDisplay() {
+            const tempo = parseFloat(document.getElementById('tempo').value);
+            const seconds = (currentBeat / 4) * (60 / tempo);
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            document.getElementById('timeDisplay').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function updateAllDisplays() {
+            document.getElementById('masterVolumeValue').textContent = 
+                Math.round(document.getElementById('masterVolume').value * 100) + '%';
+            document.getElementById('tempoValue').textContent = 
+                document.getElementById('tempo').value + ' BPM';
+            document.getElementById('tempoDisplay').textContent = 
+                document.getElementById('tempo').value;
+            document.getElementById('swingValue').textContent = 
+                document.getElementById('swing').value + '%';
+            document.getElementById('attackValue').textContent = 
+                document.getElementById('attack').value + ' ms';
+            document.getElementById('decayValue').textContent = 
+                document.getElementById('decay').value + ' ms';
+            document.getElementById('sustainValue').textContent = 
+                Math.round(document.getElementById('sustain').value * 100) + '%';
+            document.getElementById('releaseValue').textContent = 
+                document.getElementById('release').value + ' ms';
+            document.getElementById('reverbValue').textContent = 
+                Math.round(document.getElementById('reverb').value * 100) + '%';
+            document.getElementById('delayValue').textContent = 
+                document.getElementById('delay').value + ' ms';
+            document.getElementById('filterValue').textContent = 
+                document.getElementById('filter').value + ' Hz';
+        }
+
+        // Event listeners for all controls
+        document.querySelectorAll('input[type="range"]').forEach(input => {
+            input.addEventListener('input', updateAllDisplays);
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                isPlaying ? stopPlayback() : playSequence();
+            } else if (e.code === 'Backspace') {
+                e.preventDefault();
+                clearAll();
+            }
+        });
+
+        // Initialize
+        initGrid();
+        updateAllDisplays();
+    </script>
+</body>
+</html>
