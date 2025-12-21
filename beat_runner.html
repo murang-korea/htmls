@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>HYPER PULSE : BEAT RUNNER</title>
+<style>
+body { margin:0; overflow:hidden; background:#000; font-family:'Arial Black',sans-serif; cursor:crosshair; }
+#ui { position:absolute; top:20px; width:100%; text-align:center; color:#fff; pointer-events:none; }
+#score { font-size:70px; font-style:italic; text-shadow:0 0 20px #ff00ff,0 0 40px #00ffff; }
+#hp { font-size:14px; letter-spacing:2px; margin-top:5px; }
+#gauge { position:absolute; bottom:40px; left:50%; transform:translateX(-50%); width:300px; height:10px; border:2px solid #fff; }
+#gaugeFill { height:100%; width:0%; background:#ff0; box-shadow:0 0 15px #ff0; }
+#file { position:absolute; top:10px; left:10px; z-index:10; }
+canvas { display:block; }
+</style>
+</head>
+<body>
+
+<input id="file" type="file" accept="audio/*">
+
+<div id="ui">
+    <div id="score">00</div>
+    <div id="hp">HP ●●●</div>
+    <div id="gauge"><div id="gaugeFill"></div></div>
+</div>
+<canvas id="canvas"></canvas>
+
+<audio id="bgm"></audio>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const scoreEl = document.getElementById("score");
+const hpEl = document.getElementById("hp");
+const gaugeFill = document.getElementById("gaugeFill");
+const bgm = document.getElementById("bgm");
+const fileInput = document.getElementById("file");
+
+let w,h;
+let player, obstacles=[], particles=[];
+let score=0, speed=6;
+let hp=3;
+let overdrive=0, isOverdrive=false;
+let timeScale=1;
+let shake=0;
+let gameActive=false;
+let gameClear=false;
+
+// 🎵 Web Audio
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const src = audioCtx.createMediaElementSource(bgm);
+const analyser = audioCtx.createAnalyser();
+src.connect(analyser);
+analyser.connect(audioCtx.destination);
+analyser.fftSize = 256;
+const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+// 파일 선택
+fileInput.addEventListener("change", e => {
+    const file = e.target.files[0];
+    if(!file) return;
+    bgm.src = URL.createObjectURL(file);
+    bgm.load();
+});
+
+bgm.addEventListener("ended", () => {
+    gameActive = false;
+    gameClear = true;
+});
+
+function resize(){
+    w = canvas.width = innerWidth;
+    h = canvas.height = innerHeight;
+}
+resize();
+addEventListener("resize",resize);
+
+function init(){
+    score=0;
+    speed=6;
+    hp=3;
+    overdrive=0;
+    isOverdrive=false;
+    shake=0;
+    obstacles=[];
+    particles=[];
+    gameClear=false;
+    gameActive=true;
+    player={ x:200, y:h-150, w:48, h:48, vy:0, jump:0, color:"#0ff" };
+}
+
+function spawnObstacle(){
+    if(!gameActive) return;
+    const hh = Math.random()*80+60;
+    obstacles.push({ x:w, y:h-hh-50, w:40, h:hh, color:"#f0f" });
+    setTimeout(spawnObstacle, 900);
+}
+
+function boom(x,y,color,count=30){
+    for(let i=0;i<count;i++){
+        particles.push({
+            x,y,
+            vx:(Math.random()-0.5)*30,
+            vy:(Math.random()-0.5)*30,
+            life:1,
+            c:color
+        });
+    }
+}
+
+addEventListener("mousedown",()=>{
+    if(!bgm.src) return; // 음악 없으면 시작 불가
+
+    if(!gameActive && !gameClear){
+        init();
+        spawnObstacle();
+        audioCtx.resume();
+        bgm.volume = 0.7;
+        bgm.play();
+        return;
+    }
+    if(gameActive && player.jump<2){
+        player.vy=-22;
+        player.jump++;
+        timeScale=0.4;
+        if(player.jump===2) player.color="#fff";
+    }
+});
+
+addEventListener("mouseup",()=>{
+    timeScale=1;
+    player.color = isOverdrive ? "#ff0" : "#0ff";
+});
+
+function update(){
+    analyser.getByteFrequencyData(dataArray);
+    const bass = dataArray[2] / 255;
+    const beatPower = bass * 30;
+    shake = Math.max(shake, beatPower);
+
+    ctx.setTransform(1,0,0,1,
+        (Math.random()-0.5)*shake,
+        (Math.random()-0.5)*shake
+    );
+
+    ctx.fillStyle = `rgba(0,0,0,${0.25+bass*0.3})`;
+    ctx.fillRect(-50,-50,w+100,h+100);
+
+    particles.forEach((p,i)=>{
+        p.x+=p.vx*timeScale;
+        p.y+=p.vy*timeScale;
+        p.life-=0.03;
+        ctx.globalAlpha=p.life;
+        ctx.fillStyle=p.c;
+        ctx.fillRect(p.x,p.y,5,5);
+        if(p.life<=0) particles.splice(i,1);
+    });
+    ctx.globalAlpha=1;
+
+    if(gameActive){
+        speed+=0.002;
+
+        player.vy+=0.8*timeScale;
+        player.y+=player.vy*timeScale;
+        if(player.y>h-player.h-50){
+            player.y=h-player.h-50;
+            player.vy=0;
+            player.jump=0;
+        }
+
+        if(!isOverdrive && overdrive>=100){
+            isOverdrive=true;
+            player.color="#ff0";
+            setTimeout(()=>{
+                isOverdrive=false;
+                overdrive=0;
+                player.color="#0ff";
+            },4000);
+        }
+        gaugeFill.style.width = overdrive+"%";
+
+        ctx.shadowBlur=30+beatPower;
+        ctx.shadowColor=player.color;
+        ctx.fillStyle=player.color;
+        ctx.fillRect(player.x,player.y,player.w,player.h);
+
+        obstacles.forEach((o,i)=>{
+            o.x-=speed*timeScale;
+            ctx.fillStyle=o.color;
+            ctx.fillRect(o.x,o.y,o.w,o.h);
+
+            if(
+                player.x<o.x+o.w &&
+                player.x+player.w>o.x &&
+                player.y<o.y+o.h &&
+                player.y+player.h>o.y
+            ){
+                if(player.jump===2 || isOverdrive){
+                    boom(o.x,o.y,o.color,40);
+                    score+=10;
+                    overdrive=Math.min(100,overdrive+25);
+                }else{
+                    hp--;
+                    shake=30;
+                    boom(player.x,player.y,"#fff",20);
+                    if(hp<=0){
+                        gameActive=false;
+                        bgm.pause();
+                    }
+                }
+                obstacles.splice(i,1);
+            }
+
+            if(o.x<-o.w){
+                score++;
+                obstacles.splice(i,1);
+            }
+        });
+
+        scoreEl.innerText = score<10?"0"+score:score;
+        hpEl.innerText = "HP " + "●".repeat(hp);
+    }
+
+    // 🎼 클리어 화면
+    if(gameClear){
+        ctx.fillStyle="#fff";
+        ctx.textAlign="center";
+        ctx.font="italic 60px Arial";
+        ctx.fillText("MISSION CLEAR", w/2, h/2);
+        ctx.font="20px Arial";
+        ctx.fillText("FINAL SCORE : " + score, w/2, h/2 + 60);
+    }
+
+    ctx.setTransform(1,0,0,1,0,0);
+    requestAnimationFrame(update);
+}
+update();
+</script>
+</body>
+</html>
